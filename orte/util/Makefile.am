@@ -56,7 +56,8 @@ headers += \
         util/comm/comm.h \
         util/nidmap.h \
         util/regex.h \
-        util/attr.h
+        util/attr.h \
+        util/clock_sync.h
 
 libopen_rte_la_SOURCES += \
         util/error_strings.c \
@@ -74,7 +75,8 @@ libopen_rte_la_SOURCES += \
         util/comm/comm.c \
         util/nidmap.c \
         util/regex.c \
-        util/attr.c
+        util/attr.c \
+        util/clock_sync.c
 
 # Remove the generated man pages
 distclean-local:

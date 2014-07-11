@@ -87,6 +87,8 @@
 #include "orte/mca/rmaps/rmaps_types.h"
 #include "orte/mca/state/state.h"
 
+#include "orte/util/clock_sync.h"
+
 /* need access to the create_jobid fn used by plm components
 * so we can set singleton name, if necessary
 */
@@ -238,6 +240,7 @@ int orte_daemon(int argc, char *argv[])
     char *tmp_env_var = NULL;
 #endif
     
+
     /* initialize the globals */
     memset(&orted_globals, 0, sizeof(orted_globals));
     /* initialize the singleton died pipe to an illegal value so we can detect it was set */
@@ -860,6 +863,8 @@ int orte_daemon(int argc, char *argv[])
         opal_output(0, "%s orted: up and running - waiting for commands!", ORTE_NAME_PRINT(ORTE_PROC_MY_NAME));
     }
     ret = ORTE_SUCCESS;
+    opal_output(0,"%s[%s]: call clock sync initialisation\n",ORTE_NAME_PRINT(ORTE_PROC_MY_NAME), __FILE__);
+    orte_util_clock_sync_init();
 
     /* loop the event lib until an exit event is detected */
     while (orte_event_base_active) {

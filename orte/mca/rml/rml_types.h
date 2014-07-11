@@ -149,6 +149,9 @@ BEGIN_C_DECLS
 /* notifier support */
 #define ORTE_RML_TAG_NOTIFIER_HNP           50
 
+/* Clock synchronisation */
+#define ORTE_RML_TAG_TIMING_CLOCK_SYNC      51
+
 #define ORTE_RML_TAG_MAX                   100
 
 

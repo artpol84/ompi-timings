@@ -42,6 +42,7 @@
 #include "orte/util/dash_host/dash_host.h"
 #include "orte/util/session_dir.h"
 #include "orte/util/show_help.h"
+#include "orte/util/clock_sync.h"
 #include "orte/mca/errmgr/errmgr.h"
 #include "orte/mca/ess/ess.h"
 #include "orte/mca/iof/iof.h"
@@ -157,6 +158,8 @@ void orte_plm_base_daemons_reported(int fd, short args, void *cbdata)
     if (orte_display_allocation) {
         orte_ras_base_display_alloc();
     }
+
+    orte_util_clock_sync_hnp_part();
 
     /* progress the job */
     caddy->jdata->state = ORTE_JOB_STATE_DAEMONS_REPORTED;
