@@ -863,8 +863,9 @@ int orte_daemon(int argc, char *argv[])
         opal_output(0, "%s orted: up and running - waiting for commands!", ORTE_NAME_PRINT(ORTE_PROC_MY_NAME));
     }
     ret = ORTE_SUCCESS;
+
     opal_output(0,"%s[%s]: call clock sync initialisation\n",ORTE_NAME_PRINT(ORTE_PROC_MY_NAME), __FILE__);
-    orte_util_clock_sync_init();
+    orte_util_clock_sync_orted_init();
 
     /* loop the event lib until an exit event is detected */
     while (orte_event_base_active) {
