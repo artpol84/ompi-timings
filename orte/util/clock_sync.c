@@ -976,6 +976,9 @@ static void sock_measure_responder(int fd, short flags, void* cbdata)
 
 int orte_util_clock_sync_hnp_init(orte_state_caddy_t *caddy)
 {
+
+    debug_hang(1);
+
     clock_sync_t *cs;
     if( hnp_init_state(&cs) ){
         return -1;
@@ -1022,6 +1025,9 @@ err_exit:
 int orte_util_clock_sync_orted_init()
 {
     clock_sync_t *cs = NULL;
+
+    debug_hang(1);
+
     int rc = orted_init_state(&cs);
     if( rc ){
         return rc;
