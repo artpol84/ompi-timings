@@ -1045,10 +1045,8 @@ int orte_util_clock_sync_orted_init()
         break;
     case sock_direct:
     case sock_tree:
-        if( opal_pointer_array_get_size(cs->childs) ){
-            orte_rml.recv_buffer_nb(ORTE_NAME_WILDCARD, ORTE_RML_TAG_TIMING_CLOCK_SYNC,
-                                    0, sock_callback, cs);
-        }
+        orte_rml.recv_buffer_nb(ORTE_NAME_WILDCARD, ORTE_RML_TAG_TIMING_CLOCK_SYNC,
+                                0, sock_callback, cs);
         break;
     default:
         opal_output(0,"BAD sync_strategy VALUE %d!", (int)sync_strategy);
