@@ -57,6 +57,12 @@
 #define MAX_COUNT 100
 #define BIAS_MAX_STR 32
 
+static void debug_hang(int val)
+{
+    while(val){
+        sleep(1);
+    }
+}
 
 inline static void _clksync_output(char *fmt, ... )
 {
