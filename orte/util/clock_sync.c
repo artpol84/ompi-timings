@@ -992,9 +992,6 @@ int orte_util_clock_sync_hnp_init(orte_state_caddy_t *caddy)
     case sock_direct:
     case sock_tree:
         if( opal_pointer_array_get_size(cs->childs) ){
-            orte_rml.recv_buffer_nb(ORTE_NAME_WILDCARD, ORTE_RML_TAG_TIMING_CLOCK_SYNC,
-                                    0, sock_callback, cs);
-
             // setup working socket event
             cs->ev = opal_event_alloc();
             opal_event_set(opal_event_base, cs->ev, cs->fd, OPAL_EV_READ | OPAL_EV_PERSIST,
@@ -1023,10 +1020,33 @@ int orte_util_clock_sync_orted_init()
     if( rc ){
         return rc;
     }
-    /* setup the primary daemon command receive function */
-    orte_rml.recv_buffer_nb(ORTE_NAME_WILDCARD, ORTE_RML_TAG_TIMING_CLOCK_SYNC,
-                            ORTE_RML_PERSISTENT, rml_callback, cs);
+
+    switch( sync_strategy ){
+    case rml_direct:
+    case rml_tree:
+        if( opal_pointer_array_get_size(cs->childs) ){
+            orte_rml.recv_buffer_nb(ORTE_NAME_WILDCARD, ORTE_RML_TAG_TIMING_CLOCK_SYNC,
+                                    ORTE_RML_PERSISTENT, rml_callback, cs);
+        }else{
+            goto err_exit;
+        }
+        break;
+    case sock_direct:
+    case sock_tree:
+        if( opal_pointer_array_get_size(cs->childs) ){
+            orte_rml.recv_buffer_nb(ORTE_NAME_WILDCARD, ORTE_RML_TAG_TIMING_CLOCK_SYNC,
+                                    0, sock_callback, cs);
+        }
+        break;
+    default:
+        opal_output(0,"BAD sync_strategy VALUE %d!", (int)sync_strategy);
+        return -1;
+    }
 
     CLKSYNC_OUTPUT( ("callback is installed") );
     return 0;
+
+err_exit:
+    free(cs);
+    return -1;
 }
