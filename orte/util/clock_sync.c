@@ -90,7 +90,7 @@ typedef enum { bias_in_progress, bias_calculated } measure_status_t;
 
 
 
-static sync_strategy_t sync_strategy = rml_direct;
+static sync_strategy_t sync_strategy = sock_direct;
 
 typedef struct {
     bool is_hnp;
