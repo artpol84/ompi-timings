@@ -119,6 +119,7 @@ typedef struct {
     unsigned short port, par_port;
     char *par_uri;
     opal_event_t *ev;
+    int maxsize;
 } clock_sync_t;
 
 typedef struct {
@@ -138,17 +139,19 @@ static int connect_nb(int sock, const struct sockaddr *addr,
 inline static double timing_get_ts(void);
 inline static int put_ts(opal_buffer_t *buffer);
 inline static int extract_ts(opal_buffer_t *buffer, double *ret);
-static opal_buffer_t *form_measurement_request(clock_sync_t *cs);
+
+static int form_measurement_request(clock_sync_t *cs, opal_buffer_t **o_buffer);
 static int form_measurement_reply(clock_sync_t *cs, opal_buffer_t *buffer,
-                                  measure_status_t *state, opal_buffer_t *rbuffer );
+                                  measure_status_t *state, opal_buffer_t **o_rbuffer );
 static int extract_measurement_reply(clock_sync_t *cs, opal_buffer_t *buffer, measurement_t *result);
 static int calculate_bias(clock_sync_t *cs, double *bias);
-static int read_opal_buffer(int fd, opal_buffer_t *buffer);
+static int read_opal_buffer(clock_sync_t *cs, int fd, opal_buffer_t *buffer);
 
 // State machine
 orte_process_name_t current_orted(clock_sync_t *cs);
 orte_process_name_t next_orted(clock_sync_t *cs);
 static int responder_init(clock_sync_t *cs);
+static int max_bufsize(clock_sync_t *cs);
 static int responder_activate(clock_sync_t *cs);
 static int requester_init(clock_sync_t *cs, opal_buffer_t *buffer);
 static int base_hnp_init_direct(clock_sync_t *cs);
@@ -328,38 +331,44 @@ inline static int extract_ts(opal_buffer_t *buffer, double *ret)
     return 0;
 }
 
-static opal_buffer_t *form_measurement_request(clock_sync_t *cs)
+static int form_measurement_request(clock_sync_t *cs, opal_buffer_t **o_buffer)
 {
     opal_buffer_t *buffer = OBJ_NEW(opal_buffer_t);
     int rc;
 
     if( buffer == NULL ){
-        ORTE_ERROR_LOG(ORTE_ERR_MEM_LIMIT_EXCEEDED);
-        return NULL;
+        rc = ORTE_ERR_MEM_LIMIT_EXCEEDED;
+        goto eexit;
     }
+
     uint32_t buf32 = cs->req_state;
 
     // Send current status
     if (ORTE_SUCCESS != (rc = opal_dss.pack(buffer, &buf32, 1, OPAL_UINT32 ))) {
-        ORTE_ERROR_LOG(rc);
-        OBJ_RELEASE(buffer);
-        return NULL;
+        goto eexit;
     }
 
     // Put timestamp to receive it in response
     if( ( rc = put_ts(buffer) ) ) {
-        OBJ_RELEASE(buffer);
-        return NULL;
+        goto eexit;
     }
 
-    return buffer;
+    *o_buffer = buffer;
+    return 0;
+eexit:
+    if( buffer ){
+        OBJ_RELEASE(buffer);
+    }
+    ORTE_ERROR_LOG(rc);
+    return rc;
 }
 
 static int form_measurement_reply(clock_sync_t *cs, opal_buffer_t *buffer,
-                                  measure_status_t *state, opal_buffer_t *rbuffer )
+                                  measure_status_t *state, opal_buffer_t **o_rbuffer )
 {
     uint32_t buf32;
     int idx = 1, rc;
+    opal_buffer_t *rbuffer = NULL;
 
     // Check for measurement completition
     if (OPAL_SUCCESS != (rc = opal_dss.unpack(buffer, &buf32, &idx, OPAL_UINT32)) ) {
@@ -369,7 +378,15 @@ static int form_measurement_reply(clock_sync_t *cs, opal_buffer_t *buffer,
 
     *state = buf32;
     if( *state == bias_calculated ){
+        *o_rbuffer = NULL;
         return 0;
+    }
+
+    rbuffer = OBJ_NEW(opal_buffer_t);
+
+    if( rbuffer == NULL ){
+        rc = ORTE_ERR_MEM_LIMIT_EXCEEDED;
+        goto err_exit;
     }
 
     if( ( rc = opal_dss.copy_payload(rbuffer, buffer) ) ){
@@ -380,9 +397,14 @@ static int form_measurement_reply(clock_sync_t *cs, opal_buffer_t *buffer,
     if( ( rc = put_ts(rbuffer) ) ){
         goto err_exit;
     }
+
+    *o_rbuffer = rbuffer;
     return 0;
 
 err_exit:
+    if( rbuffer ){
+        OBJ_RELEASE(rbuffer);
+    }
     return rc;
 }
 
@@ -455,12 +477,10 @@ static int calculate_bias(clock_sync_t *cs, double *bias)
     return 0;
 }
 
-static int read_opal_buffer(int fd, opal_buffer_t *buffer)
+static int read_opal_buffer(clock_sync_t *cs, int fd, opal_buffer_t *buffer)
 {
-/*
     int rc = 0;
-    char tbuf[64];
-    char *buf = malloc(sizeof(tbuf));
+    char *buf = malloc(cs->maxsize);
 
     if( buf == NULL ){
         rc = ORTE_ERR_MEM_LIMIT_EXCEEDED;
@@ -469,38 +489,23 @@ static int read_opal_buffer(int fd, opal_buffer_t *buffer)
 
     int size = 0;
     int ret = 0;
-    while( (ret = read(fd,tbuf, sizeof(tbuf))) ){
-        memcpy(buf + size, tbuf, ret);
-        size += ret;
-        buf = realloc(buf, size);
-        if( buf == NULL ){
-            rc = ORTE_ERR_MEM_LIMIT_EXCEEDED;
-            goto err_exit;
-        }
+    if( (size = read(fd, buf, cs->maxsize) ) <= 0 ){
+        free(buf);
+        goto err_exit;
     }
-    if( size ){
-        rc = opal_dss.load(buffer, buf, size);
-    } else {
+    if( (rc = opal_dss.load(buffer, buf, size) ) ){
         rc = ORTE_ERR_BAD_PARAM;
+    } else {
+        buf = NULL;
     }
 
-    free(buf);
 err_exit:
+
+    if( buf )
+        free(buf);
     if( rc )
         ORTE_ERROR_LOG(rc);
     return rc;
-*/
-
-    char buf[1024];
-
-    int size = 0;
-    int ret = 0;
-    if( (ret = read(fd,buf, sizeof(buf))) <= 0 ){
-      return OPAL_ERROR;
-    }else{
-        rc = opal_dss.load(buffer, buf, ret );
-    }
-    return 0;
 }
 
 //----------------- State machine ----------------
@@ -532,6 +537,51 @@ orte_process_name_t next_orted(clock_sync_t *cs)
     return daemon->name;
 }
 
+static int max_bufsize(clock_sync_t *cs)
+{
+    static int max_size = 0;
+    if( max_size == 0 ){
+        // estimate max buffer size
+        opal_buffer_t *buf, *rbuf;
+        void *ptr;
+        int size, rc;
+
+        // get request size
+        if( (rc = form_measurement_request(cs, &buf) ) ){
+            return rc;
+        }
+        if( ( rc = opal_dss.unload(buf, &ptr, &size) ) ){
+            OBJ_RELEASE(buf);
+            return rc;
+        }
+        max_size = size;
+        free(ptr);
+        OBJ_RELEASE(buf);
+
+
+        // get request size
+        if( (rc = form_measurement_request(cs, &buf) ) ){
+            return rc;
+        }
+        measure_status_t status;
+        if( (rc = form_measurement_reply(cs, buf, &status, &rbuf) ) ){
+            OBJ_RELEASE(buf);
+            return rc;
+        }
+        if( ( rc = opal_dss.unload(rbuf, &ptr, &size) ) ){
+            OBJ_RELEASE(buf);
+            return rc;
+        }
+        if( max_size < size ){
+            max_size = size;
+        }
+        OBJ_RELEASE(buf);
+        free(ptr);
+        OBJ_RELEASE(rbuf);
+        max_size += 10;
+    }
+    return max_size;
+}
 
 static int responder_init(clock_sync_t *cs)
 {
@@ -598,6 +648,8 @@ static int responder_activate(clock_sync_t *cs)
         opal_dss.pack(buffer, &ptr, 1, OPAL_STRING);
         free(ptr);
         opal_dss.pack(buffer,&cs->port, 1, OPAL_UINT16);
+        int msize = max_bufsize(cs);
+        opal_dss.pack(buffer,&msize, 1, OPAL_INT);
         break;
     }
     default:
@@ -643,6 +695,11 @@ static int requester_init(clock_sync_t *cs, opal_buffer_t *buffer)
         }
         idx = 1;
         if (OPAL_SUCCESS != (rc = opal_dss.unpack(buffer, &cs->par_port, &idx, OPAL_UINT16 ) ) ){
+            ORTE_ERROR_LOG(rc);
+            return rc;
+        }
+        idx = 1;
+        if (OPAL_SUCCESS != (rc = opal_dss.unpack(buffer, &cs->maxsize, &idx, OPAL_INT ) ) ){
             ORTE_ERROR_LOG(rc);
             return rc;
         }
@@ -799,9 +856,9 @@ static void rml_callback(int status, orte_process_name_t* sender,
 static int rml_request(clock_sync_t *cs)
 {
     int rc;
-    opal_buffer_t *buffer = form_measurement_request(cs);
-    if( buffer == NULL ){
-        return ORTE_ERROR;
+    opal_buffer_t *buffer = NULL;
+    if( (rc = form_measurement_request(cs, &buffer) ) ){
+        return rc;
     }
 
     if (0 > (rc = orte_rml.send_buffer_nb(&cs->parent, buffer, ORTE_RML_TAG_TIMING_CLOCK_SYNC,
@@ -850,11 +907,11 @@ static int rml_respond(clock_sync_t *cs,
 {
     int rc = 0;
     measure_status_t state;
-    opal_buffer_t *rbuffer = OBJ_NEW(opal_buffer_t);
+    opal_buffer_t *rbuffer = NULL;
 
     CLKSYNC_OUTPUT( ("called by %s", ORTE_NAME_PRINT(sender)) );
 
-    if( ( rc = form_measurement_reply(cs, buffer, &state, rbuffer ) ) ){
+    if( (rc = form_measurement_reply(cs, buffer, &state, &rbuffer) ) ){
         goto eexit;
     }
 
@@ -876,7 +933,8 @@ static int rml_respond(clock_sync_t *cs,
 
     CLKSYNC_OUTPUT( ("reply to measurement request from %s", ORTE_NAME_PRINT(sender)) );
 eexit:
-    OBJ_RELEASE(rbuffer);
+    if( rbuffer )
+        OBJ_RELEASE(rbuffer);
     return rc;
 }
 
@@ -1116,10 +1174,10 @@ static int sock_one_measurement(clock_sync_t *cs, int fd, measurement_t *m)
         return ORTE_ERR_BAD_PARAM;
     }
 
-    buffer = form_measurement_request(cs);
-    if( buffer == NULL ){
-        return ORTE_ERROR;
+    if( (rc = form_measurement_request(cs, &buffer) )  ){
+        return rc;
     }
+
     void *ptr;
     int32_t size;
     if( (rc = opal_dss.unload(buffer,&ptr,&size) ) ){
@@ -1140,7 +1198,7 @@ static int sock_one_measurement(clock_sync_t *cs, int fd, measurement_t *m)
         // TODO: error handling
     }
     
-    if( (rc = read_opal_buffer(fd, buffer) ) ){
+    if( (rc = read_opal_buffer(cs, fd, buffer) ) ){
         CLKSYNC_OUTPUT(("Cannot read from fd = %d", fd));
         goto eexit2;
     }
@@ -1227,14 +1285,14 @@ static void sock_respond(int fd, short flags, void* cbdata)
     }
 
     opal_buffer_t *buffer = OBJ_NEW(opal_buffer_t);
-    if( (rc = read_opal_buffer(cfd, buffer) ) ){
+    if( (rc = read_opal_buffer(cs, cfd, buffer) ) ){
         CLKSYNC_OUTPUT(("Cannot read from fd = %d", cfd));
         goto eexit;
     }
 
-    opal_buffer_t *rbuffer = OBJ_NEW(opal_buffer_t);
+    opal_buffer_t *rbuffer = NULL;
     measure_status_t state;
-    if( ( rc = form_measurement_reply(cs, buffer, &state, rbuffer ) ) ){
+    if( ( rc = form_measurement_reply(cs, buffer, &state, &rbuffer ) ) ){
         CLKSYNC_OUTPUT(("Cannot form_measurement_reply"));
         goto eexit2;
     }
