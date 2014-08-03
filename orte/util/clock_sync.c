@@ -270,6 +270,7 @@ static int connect_nb(int sock, const struct sockaddr *addr,
         // no connection was established
         return -1;
     }
+    fcntl(sock, F_SETFL, 0);
     return 0;
 }
 
@@ -456,6 +457,7 @@ static int calculate_bias(clock_sync_t *cs, double *bias)
 
 static int read_opal_buffer(int fd, opal_buffer_t *buffer)
 {
+/*
     int rc = 0;
     char tbuf[64];
     char *buf = malloc(sizeof(tbuf));
@@ -487,6 +489,18 @@ err_exit:
     if( rc )
         ORTE_ERROR_LOG(rc);
     return rc;
+*/
+
+    char buf[1024];
+
+    int size = 0;
+    int ret = 0;
+    if( (ret = read(fd,buf, sizeof(buf))) <= 0 ){
+      return OPAL_ERROR;
+    }else{
+        rc = opal_dss.load(buffer, buf, ret );
+    }
+    return 0;
 }
 
 //----------------- State machine ----------------
@@ -581,7 +595,7 @@ static int responder_activate(clock_sync_t *cs)
     case sock_tree:{
         // Send contact information
         char *ptr = orte_rml.get_contact_info();
-        opal_dss.pack(buffer, ptr, 1, OPAL_STRING);
+        opal_dss.pack(buffer, &ptr, 1, OPAL_STRING);
         free(ptr);
         opal_dss.pack(buffer,&cs->port, 1, OPAL_UINT16);
         break;
@@ -909,8 +923,14 @@ static int sock_parent_addrs(clock_sync_t *cs, opal_pointer_array_t *array)
         goto eexit1;
     }
 
-    char *uri = strdup(cs->par_uri);
-    char *host, *ports;
+    char *base = strdup(cs->par_uri);
+    char *uri = strchr(base, ';');
+    if( uri == NULL ){
+      rc = ORTE_ERROR;
+      goto eexit2;
+    }
+    uri++;
+    char *host = NULL, *ports;
 
     uint16_t af_family = AF_UNSPEC;
     if (0 == strncmp(uri, "tcp:", 4)) {
@@ -961,7 +981,7 @@ static int sock_parent_addrs(clock_sync_t *cs, opal_pointer_array_t *array)
 eexit3:
     opal_argv_free(addrs);
 eexit2:
-    free(uri);
+    free(base);
 eexit1:
     if( rc )
         ORTE_ERROR_LOG(rc);
@@ -1113,7 +1133,13 @@ static int sock_one_measurement(clock_sync_t *cs, int fd, measurement_t *m)
         goto eexit2;
     }
 
-
+    OBJ_RELEASE(buffer);
+    
+    buffer = OBJ_NEW(opal_buffer_t);
+    if( buffer == NULL ){
+        // TODO: error handling
+    }
+    
     if( (rc = read_opal_buffer(fd, buffer) ) ){
         CLKSYNC_OUTPUT(("Cannot read from fd = %d", fd));
         goto eexit2;
@@ -1261,7 +1287,7 @@ int orte_util_clock_sync_hnp_init(orte_state_caddy_t *caddy)
         if( opal_pointer_array_get_size(cs->childs) ){
             orte_rml.recv_buffer_nb(ORTE_NAME_WILDCARD, ORTE_RML_TAG_TIMING_CLOCK_SYNC,
                                     ORTE_RML_PERSISTENT, rml_callback, cs);
-            if( responder_activate(cs) ){
+            if( responder_init(cs) ){
                 goto err_exit;
             }
         }else{
@@ -1271,10 +1297,11 @@ int orte_util_clock_sync_hnp_init(orte_state_caddy_t *caddy)
     case sock_direct:
     case sock_tree:
         if( opal_pointer_array_get_size(cs->childs) ){
-            if( responder_activate(cs) ){
+            if( responder_init(cs) ){
                 goto err_exit;
             }
         }
+        break;
     default:
         opal_output(0,"BAD sync_strategy VALUE %d!", (int)clksync_sync_strategy);
         return -1;
