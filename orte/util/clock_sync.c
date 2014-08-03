@@ -1107,6 +1107,7 @@ static int sock_one_measurement(clock_sync_t *cs, int fd, measurement_t *m)
     }
 
     if( write(fd,ptr,size) < size ){
+        // TODO: cycle until we send everything
         CLKSYNC_OUTPUT(("Cannot write to fd = %d", fd));
         rc = ORTE_ERROR;
         goto eexit2;
