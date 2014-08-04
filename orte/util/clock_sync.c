@@ -689,7 +689,7 @@ static int responder_activate(clock_sync_t *cs)
     }
 
 err_exit:
-    if( buffer ){
+    if( rc != OPAL_SUCCESS && buffer ){
         OBJ_RELEASE(buffer);
     }
     if( bias ){
