@@ -479,7 +479,8 @@ static int calculate_bias(clock_sync_t *cs, double *bias)
 
 static int read_opal_buffer(clock_sync_t *cs, int fd, opal_buffer_t *buffer)
 {
-    int rc = 0;
+    int rc = 0, size = 0;
+;
     char *buf = malloc(cs->maxsize);
 
     if( buf == NULL ){
@@ -487,14 +488,12 @@ static int read_opal_buffer(clock_sync_t *cs, int fd, opal_buffer_t *buffer)
         goto err_exit;
     }
 
-    int size = 0;
-    int ret = 0;
     if( (size = read(fd, buf, cs->maxsize) ) <= 0 ){
-        free(buf);
+        rc = OPAL_ERROR;
         goto err_exit;
     }
-    if( (rc = opal_dss.load(buffer, buf, size) ) ){
-        rc = ORTE_ERR_BAD_PARAM;
+    if( (rc = opal_dss.load(buffer, &buf, size) ) ){
+        goto err_exit;
     } else {
         buf = NULL;
     }
@@ -546,7 +545,7 @@ static int max_bufsize(clock_sync_t *cs)
         void *ptr;
         int size, rc;
 
-        // get request size
+        // get REQUEST size
         if( (rc = form_measurement_request(cs, &buf) ) ){
             return rc;
         }
@@ -559,12 +558,15 @@ static int max_bufsize(clock_sync_t *cs)
         OBJ_RELEASE(buf);
 
 
-        // get request size
+        // get RESPONSE size
         if( (rc = form_measurement_request(cs, &buf) ) ){
             return rc;
         }
         measure_status_t status;
-        if( (rc = form_measurement_reply(cs, buf, &status, &rbuf) ) ){
+        // Fake clock_sync_t's req_state to calculate reply size
+        clock_sync_t tcs = *cs;
+        tcs.req_state = bias_in_progress;
+        if( (rc = form_measurement_reply(&tcs, buf, &status, &rbuf) ) ){
             OBJ_RELEASE(buf);
             return rc;
         }
@@ -621,8 +623,12 @@ eexit:
 
 static int responder_activate(clock_sync_t *cs)
 {
-    int rc;
+    opal_buffer_t *buffer = NULL;
+    char *bias = NULL;
+    char *contact_info = NULL;
+    int rc = 0;
 
+    // Get the current orted to process
     orte_process_name_t dname = current_orted(cs);
     if( PROC_NAME_CMP(dname,orte_name_invalid) ){
         // Nothing to do, all orteds was served
@@ -631,11 +637,19 @@ static int responder_activate(clock_sync_t *cs)
     }
 
     // Create initiation buffer
-    opal_buffer_t *buffer = OBJ_NEW(opal_buffer_t);
-    char *bias = malloc(sizeof(char) * BIAS_MAX_STR );
+    if( NULL == (buffer = OBJ_NEW(opal_buffer_t) ) ){
+        rc = ORTE_ERR_MEM_LIMIT_EXCEEDED;
+        goto err_exit;
+    }
+
+    if( NULL == (bias = malloc(sizeof(char) * BIAS_MAX_STR ) ) ){
+        rc = ORTE_ERR_MEM_LIMIT_EXCEEDED;
+        goto err_exit;
+    }
     sprintf(bias, "%15.15lf", cs->bias );
-    opal_dss.pack(buffer, &bias, 1, OPAL_STRING );
-    free(bias);
+    if( OPAL_SUCCESS != (rc = opal_dss.pack(buffer, &bias, 1, OPAL_STRING ) ) ){
+        goto err_exit;
+    }
 
     switch( clksync_sync_strategy ){
     case rml_direct:
@@ -644,42 +658,64 @@ static int responder_activate(clock_sync_t *cs)
     case sock_direct:
     case sock_tree:{
         // Send contact information
-        char *ptr = orte_rml.get_contact_info();
-        opal_dss.pack(buffer, &ptr, 1, OPAL_STRING);
-        free(ptr);
-        opal_dss.pack(buffer,&cs->port, 1, OPAL_UINT16);
+        if( NULL == (contact_info = orte_rml.get_contact_info() ) ){
+            goto err_exit;
+        }
+        if( OPAL_SUCCESS != ( rc = opal_dss.pack(buffer, &contact_info, 1, OPAL_STRING) ) ) {
+                goto err_exit;
+        }
+        if( OPAL_SUCCESS != (rc = opal_dss.pack(buffer,&cs->port, 1, OPAL_UINT16) ) ){
+                goto err_exit;
+        }
         int msize = max_bufsize(cs);
-        opal_dss.pack(buffer,&msize, 1, OPAL_INT);
+        if( msize < 0 ){
+            rc = msize;
+            goto err_exit;
+        }
+        if( OPAL_SUCCESS != (rc = opal_dss.pack(buffer,&msize, 1, OPAL_INT) ) ){
+            goto err_exit;
+        }
         break;
     }
     default:
         return -1;
     }
 
-    if (0 > (rc = orte_rml.send_buffer_nb(&dname, buffer,
+    if( OPAL_SUCCESS != (rc = orte_rml.send_buffer_nb(&dname, buffer,
                                           ORTE_RML_TAG_TIMING_CLOCK_SYNC,
-                                          orte_rml_send_callback, NULL))) {
-        ORTE_ERROR_LOG(rc);
-        OBJ_RELEASE(buffer);
-        return rc;
+                                          orte_rml_send_callback, NULL)) ) {
+        goto err_exit;
     }
-    return 0;
+
+err_exit:
+    if( buffer ){
+        OBJ_RELEASE(buffer);
+    }
+    if( bias ){
+        free(bias);
+    }
+    if( contact_info ){
+        free( contact_info );
+    }
+    if( rc != OPAL_SUCCESS ){
+        ORTE_ERROR_LOG(rc);
+    }
+    return rc;
 }
 
 
 static int requester_init(clock_sync_t *cs, opal_buffer_t *buffer)
 {
-    int idx = 1, rc;
+    int idx = 1, rc = OPAL_SUCCESS;
+    char *bias = NULL;
 
-    char *bias = malloc(sizeof(char) * BIAS_MAX_STR );
-
-    if (OPAL_SUCCESS != (rc = opal_dss.unpack(buffer, &bias, &idx, OPAL_STRING ) ) ){
-        ORTE_ERROR_LOG(rc);
-        return rc;
+    if( OPAL_SUCCESS != (rc = opal_dss.unpack(buffer, &bias, &idx, OPAL_STRING ) ) ){
+        goto err_exit;
     }
 
     if( 1 != sscanf(bias, "%lf", &cs->par_bias ) ){
-        return ORTE_ERROR;
+        rc = ORTE_ERROR;
+        goto err_exit;
     }
 
     switch( clksync_sync_strategy ){
@@ -689,30 +725,41 @@ static int requester_init(clock_sync_t *cs, opal_buffer_t *buffer)
     case sock_direct:
     case sock_tree:{
         idx = 1;
-        if( ( rc = opal_dss.unpack(buffer, &cs->par_uri, &idx, OPAL_STRING) ) ){
-            ORTE_ERROR_LOG(rc);
-            return -1;
+        if( OPAL_SUCCESS != ( rc = opal_dss.unpack(buffer, &cs->par_uri, &idx, OPAL_STRING) ) ){
+            rc = OPAL_ERROR;
+            goto err_exit;
         }
         idx = 1;
         if (OPAL_SUCCESS != (rc = opal_dss.unpack(buffer, &cs->par_port, &idx, OPAL_UINT16 ) ) ){
-            ORTE_ERROR_LOG(rc);
-            return rc;
+            rc = OPAL_ERROR;
+            goto err_exit;
         }
         idx = 1;
         if (OPAL_SUCCESS != (rc = opal_dss.unpack(buffer, &cs->maxsize, &idx, OPAL_INT ) ) ){
-            ORTE_ERROR_LOG(rc);
-            return rc;
+            rc = OPAL_ERROR;
+            goto err_exit;
         }
         break;
     }
     default:
-        return ORTE_ERROR;
+        rc = OPAL_ERROR;
+        goto err_exit;
     }
-    return 0;
+
+err_exit:
+    if( bias ){
+        free( bias );
+    }
+    if( rc != OPAL_SUCCESS ){
+        ORTE_ERROR_LOG(rc);
+    }
+    return rc;
 }
 
 static int base_hnp_init_direct(clock_sync_t *cs)
 {
+    int rc = OPAL_SUCCESS;
+
     memset(cs, 0, sizeof(*cs));
     cs->is_hnp = true;
     cs->state = resp_init;
@@ -725,7 +772,8 @@ static int base_hnp_init_direct(clock_sync_t *cs)
     cs->parent = *ORTE_PROC_MY_NAME;
 
     if( cs->childs == NULL || cs->results == NULL ){
-        return ORTE_ERR_OUT_OF_RESOURCE;
+        rc = ORTE_ERR_OUT_OF_RESOURCE;
+        goto err_exit;
     }
 
     orte_job_t *jorted = orte_get_job_data_object(ORTE_PROC_MY_NAME->jobid);
@@ -741,12 +789,23 @@ static int base_hnp_init_direct(clock_sync_t *cs)
         }
         int rc;
         if( (rc = opal_pointer_array_add(cs->childs, daemon)) ){
-            OPAL_ERROR_LOG(rc);
-            OBJ_RELEASE(cs->childs);
-            return rc;
+            goto err_exit;
         }
     }
-    return ORTE_SUCCESS;
+
+    return OPAL_SUCCESS;
+
+err_exit:
+    if( cs->childs != NULL ){
+        free(cs->childs);
+    }
+    if( cs->results != NULL ){
+        free(cs->results);
+    }
+    if( rc != OPAL_SUCCESS){
+        ORTE_ERROR_LOG(rc);
+    }
+    return rc;
 }
 
 static int hnp_init_state(clock_sync_t **cs)
@@ -757,7 +816,6 @@ static int hnp_init_state(clock_sync_t **cs)
     }
     return  base_hnp_init_direct(*cs);
 }
-
 
 static int base_orted_init_direct(clock_sync_t *cs)
 {
@@ -1277,24 +1335,31 @@ static void sock_respond(int fd, short flags, void* cbdata)
     clock_sync_t *cs = cbdata;
     struct sockaddr_in addr;
     opal_socklen_t addrlen = sizeof(addr);
+    opal_buffer_t *buffer = NULL;
+    opal_buffer_t *rbuffer = NULL;
+    measure_status_t state;
+    void *ptr = NULL;
+    int32_t size;
 
+    // TODO: accept IPv6 & IPv4
     int cfd = accept(fd, (struct sockaddr*)&addr, &addrlen);
     if(cfd < 0) {
         CLKSYNC_OUTPUT( ("Cannot accept: %s", strerror(errno)) );
-        return;
+        goto err_exit;
     }
 
-    opal_buffer_t *buffer = OBJ_NEW(opal_buffer_t);
+    buffer = OBJ_NEW(opal_buffer_t);
+    if( buffer == NULL ){
+        goto err_exit;
+    }
     if( (rc = read_opal_buffer(cs, cfd, buffer) ) ){
         CLKSYNC_OUTPUT(("Cannot read from fd = %d", cfd));
-        goto eexit;
+        goto err_exit;
     }
 
-    opal_buffer_t *rbuffer = NULL;
-    measure_status_t state;
     if( ( rc = form_measurement_reply(cs, buffer, &state, &rbuffer ) ) ){
         CLKSYNC_OUTPUT(("Cannot form_measurement_reply"));
-        goto eexit2;
+        goto err_exit;
     }
 
     if( state == bias_calculated ){
@@ -1304,28 +1369,33 @@ static void sock_respond(int fd, short flags, void* cbdata)
         }else{
             responder_activate(cs);
         }
-        goto eexit2;
+        goto err_exit;
     }
 
-    void *ptr;
-    int32_t size;
     if( (rc = opal_dss.unload(buffer,&ptr,&size) ) ){
         ORTE_ERROR_LOG(rc);
-        goto eexit2;
+        goto err_exit;
     }
 
     if( write(cfd, ptr, size) < size ){
         CLKSYNC_OUTPUT(("Cannot write to fd = %d", fd));
         rc = ORTE_ERROR;
-        goto eexit3;
+        goto err_exit;
     }
 
-eexit3:
-    free(ptr);
-eexit2:
-    OBJ_RELEASE(rbuffer);
-eexit:
-    close(cfd);
+err_exit:
+    if( ptr )
+        free( ptr );
+    if( buffer ){
+        OBJ_RELEASE( buffer );
+    }
+
+    if( rbuffer ){
+        OBJ_RELEASE( rbuffer );
+    }
+    if( fd >= 0 ){
+        close(cfd);
+    }
 }
 
 int orte_util_clock_sync_hnp_init(orte_state_caddy_t *caddy)
