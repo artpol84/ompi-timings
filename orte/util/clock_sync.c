@@ -559,13 +559,14 @@ static int max_bufsize(clock_sync_t *cs)
 
 
         // get RESPONSE size
-        if( (rc = form_measurement_request(cs, &buf) ) ){
-            return rc;
-        }
-        measure_status_t status;
-        // Fake clock_sync_t's req_state to calculate reply size
         clock_sync_t tcs = *cs;
         tcs.req_state = bias_in_progress;
+        measure_status_t status;
+
+        if( (rc = form_measurement_request(&tcs, &buf) ) ){
+            return rc;
+        }
+        // Fake clock_sync_t's req_state to calculate reply size
         if( (rc = form_measurement_reply(&tcs, buf, &status, &rbuf) ) ){
             OBJ_RELEASE(buf);
             return rc;
