@@ -492,7 +492,7 @@ static int read_opal_buffer(clock_sync_t *cs, int fd, opal_buffer_t *buffer)
         rc = OPAL_ERROR;
         goto err_exit;
     }
-    if( (rc = opal_dss.load(buffer, &buf, size) ) ){
+    if( (rc = opal_dss.load(buffer, buf, size) ) ){
         goto err_exit;
     } else {
         buf = NULL;
@@ -582,6 +582,7 @@ static int max_bufsize(clock_sync_t *cs)
         free(ptr);
         OBJ_RELEASE(rbuf);
         max_size += 10;
+        cs->maxsize = max_size;
     }
     return max_size;
 }
@@ -1233,6 +1234,8 @@ static int sock_one_measurement(clock_sync_t *cs, int fd, measurement_t *m)
         return ORTE_ERR_BAD_PARAM;
     }
 
+debug_hang(1);
+
     if( (rc = form_measurement_request(cs, &buffer) )  ){
         return rc;
     }
@@ -1402,8 +1405,6 @@ err_exit:
 int orte_util_clock_sync_hnp_init(orte_state_caddy_t *caddy)
 {
 
-    debug_hang(1);
-
     clock_sync_t *cs;
     if( hnp_init_state(&cs) ){
         return -1;
@@ -1445,8 +1446,6 @@ err_exit:
 int orte_util_clock_sync_orted_init()
 {
     clock_sync_t *cs = NULL;
-
-    debug_hang(1);
 
     int rc = orted_init_state(&cs);
     if( rc ){
