@@ -109,6 +109,7 @@ typedef struct {
     orte_process_name_t parent;
     int cur_daemon;
     double bias, par_bias;
+    double rtt;
     measure_status_t req_state;
     uint32_t snd_count;
     opal_pointer_array_t *childs;
@@ -172,11 +173,9 @@ static void sock_callback(int status, orte_process_name_t* sender,
                           opal_buffer_t *buffer, orte_rml_tag_t tag,
                           void* cbdata);
 static int sock_parent_addrs(clock_sync_t *cs, opal_pointer_array_t *array);
-static int sock_choose_addr(clock_sync_t *cs, opal_pointer_array_t *addrs, struct addrinfo *out_addr);
-static int sock_connect_to_parent(clock_sync_t *cs);
-static int sock_one_measurement(clock_sync_t *cs, int fd, measurement_t *m);
-static int sock_measure_rtt(clock_sync_t *cs, int fd, double *rtt);
-static int sock_measure_bias(clock_sync_t *cs, opal_buffer_t *buffer);
+static int sock_measure_bias(clock_sync_t *cs, opal_pointer_array_t *addrs);
+static int sock_one_iteration(clock_sync_t *cs, int fd, measurement_t *m);
+static int sock_estimate_addr(clock_sync_t *cs, int fd, measurement_t *m);
 static void sock_respond(int fd, short flags, void* cbdata);
 
 // Interface
@@ -1013,10 +1012,20 @@ static void sock_callback(int status, orte_process_name_t* sender,
 
     requester_init(cs, buffer);
 
-    if( sock_measure_bias(cs, buffer) ){
-        CLKSYNC_OUTPUT( ("Cannot measure bias") );
+    // Find the best connection to measure bias
+    opal_pointer_array_t *addrs = OBJ_NEW(opal_pointer_array_t);
+
+    if( sock_parent_addrs(cs, addrs) ){
+        CLKSYNC_OUTPUT( ("CLOCK SYNC: cannot get parent URI list") );
+        OBJ_RELEASE(addrs);
         return;
     }
+
+    if( sock_measure_bias(cs, addrs) ){
+        OBJ_RELEASE(addrs);
+        return;
+    }
+    OBJ_RELEASE(addrs);
 
     // If this process has childrens assigned - initiate their testing
     if( opal_pointer_array_get_size(cs->childs) ){
@@ -1106,7 +1115,7 @@ eexit1:
     return rc;
 }
 
-static int sock_perform_measure(clock_sync_t *cs, opal_pointer_array_t *addrs, measure_t *m)
+static int sock_measure_bias(clock_sync_t *cs, opal_pointer_array_t *addrs)
 {
     struct addrinfo *result, *rp;
     int rc = 0;
@@ -1124,6 +1133,7 @@ static int sock_perform_measure(clock_sync_t *cs, opal_pointer_array_t *addrs, m
     // Analyse each peer's address choose the one with best RTT
     struct addrinfo best_addr;
     double best_rtt = -1;
+    measurement_t best_m;
     memset(&best_addr, 0, sizeof(best_addr));
     unsigned int i = 0;
     size_t asize = opal_pointer_array_get_size(addrs);
@@ -1152,10 +1162,10 @@ static int sock_perform_measure(clock_sync_t *cs, opal_pointer_array_t *addrs, m
             }
 
             if ( connect_nb(fd, rp->ai_addr, rp->ai_addrlen, timeout) == 0){
-                measure_t tm;
-                if( sock_measure_rtt(cs, fd, &tm) ){
+                measurement_t tm;
+                if( sock_estimate_addr(cs, fd, &tm) ){
                     char *buf = addrinfo2string(rp);
-                    CLKSYNC_OUTPUT( ( "Cannot connect to %s", buf) );
+                    CLKSYNC_OUTPUT( ( "Cannot communicate with %s", buf) );
                     free(buf);
                     close(fd);
                     rc = ORTE_ERROR;
@@ -1164,7 +1174,7 @@ static int sock_perform_measure(clock_sync_t *cs, opal_pointer_array_t *addrs, m
                 double rtt = tm.rtt;
                 if( rtt >= 0 && (rtt < best_rtt || best_rtt == -1) ){
                     best_rtt = rtt;
-                    *m = tm;
+                    best_m = tm;
                 }
             }else{
                 char *buf = addrinfo2string(rp);
@@ -1176,51 +1186,16 @@ static int sock_perform_measure(clock_sync_t *cs, opal_pointer_array_t *addrs, m
         freeaddrinfo(result);
         result = NULL;
     }
+    cs->bias = best_m.bias;
+    cs->rtt = best_m.rtt;
 eexit:
     if( result )
         freeaddrinfo(result);
     return rc;
 }
 
-static int sock_measure_bias(clock_sync_t *cs)
-{
-    // Find the best connection to measure bias
-    opal_pointer_array_t *addrs = OBJ_NEW(opal_pointer_array_t);
-    struct addrinfo ainfo;
 
-    if( sock_parent_addrs(cs, addrs) ){
-        CLKSYNC_OUTPUT( ("CLOCK SYNC: cannot get parent URI list") );
-        OBJ_RELEASE(addrs);
-        return ORTE_ERROR;
-    }
-
-    if( sock_choose_addr(cs, addrs, &ainfo) ){
-        OBJ_RELEASE(addrs);
-        return -1;
-    }
-    OBJ_RELEASE(addrs);
-/*
-    int fd = socket(ainfo.ai_family, ainfo.ai_socktype, 0);
-    if( fd < 0 ){
-        CLKSYNC_OUTPUT( ("CLOCK SYNC: cannot create socket") );
-        return ORTE_ERROR;
-    }
-
-    // Prepare timeout
-    struct timeval  timeout;
-    timeout.tv_sec = clksync_timeout / 1000000;
-    timeout.tv_usec = clksync_timeout % 1000000;
-    if( connect_nb(fd, ainfo.ai_addr, ainfo.ai_addrlen, timeout ) ){
-        char *buf = addrinfo2string(&ainfo);
-        CLKSYNC_OUTPUT( ( "Cannot connect to %s", buf) );
-        free(buf);
-        return -1;
-    }
-    return fd;
-*/
-}
-
-static int sock_one_measurement(clock_sync_t *cs, int fd, measurement_t *m)
+static int sock_one_iteration(clock_sync_t *cs, int fd, measurement_t *m)
 {
     opal_buffer_t *buffer;
     int rc = 0;
@@ -1273,15 +1248,16 @@ eexit:
     return rc;
 }
 
-static int sock_measure_rtt(clock_sync_t *cs, int fd, measurement_t *m)
+static int sock_estimate_addr(clock_sync_t *cs, int fd, measurement_t *m)
 {
     unsigned int i;
     int rc;
     double min_rtt = -1;
+    measurement_t result;
+
     clock_sync_t tcs = *cs;
     for(i = 0 ; i < clksync_rtt_measure_count; i++){
-        measurement_t result;
-        if( ( rc = sock_one_measurement(&tcs, fd, &result) ) ){
+        if( ( rc = sock_one_iteration(&tcs, fd, &result) ) ){
             return rc;
         }
         if( min_rtt < 0 || min_rtt > result.rtt ){
@@ -1289,52 +1265,12 @@ static int sock_measure_rtt(clock_sync_t *cs, int fd, measurement_t *m)
             *m = result;
         }
     }
-    tcs.req_status = bias_calculated;
-    if( ( rc = sock_one_measurement(&tcs, fd, &result) ) ){
+    tcs.req_state = bias_calculated;
+    if( ( rc = sock_one_iteration(&tcs, fd, &result) ) ){
         return rc;
     }
     return 0;
 }
-
-/*
-static int sock_measure_bias(clock_sync_t *cs, opal_buffer_t *buffer)
-{
-    int rc = 0;
-
-    if( cs->req_state == bias_calculated ){
-        return 0;
-    }
-
-    int fd = sock_connect_to_parent( cs );
-    if( fd < 0 ){
-        return ORTE_ERROR;
-    }
-
-    unsigned int i;
-    for(i=0; i < clksync_bias_measure_count; i++){
-        measurement_t m;
-        if( ( rc = sock_one_measurement(cs, fd, &m) ) ){
-            goto eexit;
-        }
-        measurement_t *ptr = malloc(sizeof(*ptr));
-        if( ptr == NULL ){
-            rc = ORTE_ERR_MEM_LIMIT_EXCEEDED;
-            ORTE_ERROR_LOG(rc);
-            goto eexit;
-        }
-        *ptr = m;
-        if( ( rc = opal_pointer_array_add(cs->results, ptr) ) ){
-            goto eexit;
-        }
-    }
-
-eexit:
-    OBJ_RELEASE(cs->results);
-    cs->results = NULL;
-    close(fd);
-    return rc;
-}
-*/
 
 static void sock_respond(int fd, short flags, void* cbdata)
 {
