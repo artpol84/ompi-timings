@@ -1106,7 +1106,7 @@ eexit1:
     return rc;
 }
 
-static int sock_choose_addr(clock_sync_t *cs, opal_pointer_array_t *addrs, struct addrinfo *out_addr)
+static int sock_perform_measure(clock_sync_t *cs, opal_pointer_array_t *addrs, measure_t *m)
 {
     struct addrinfo *result, *rp;
     int rc = 0;
@@ -1152,8 +1152,8 @@ static int sock_choose_addr(clock_sync_t *cs, opal_pointer_array_t *addrs, struc
             }
 
             if ( connect_nb(fd, rp->ai_addr, rp->ai_addrlen, timeout) == 0){
-                double rtt;
-                if( sock_measure_rtt(cs, fd, &rtt) ){
+                measure_t tm;
+                if( sock_measure_rtt(cs, fd, &tm) ){
                     char *buf = addrinfo2string(rp);
                     CLKSYNC_OUTPUT( ( "Cannot connect to %s", buf) );
                     free(buf);
@@ -1161,14 +1161,10 @@ static int sock_choose_addr(clock_sync_t *cs, opal_pointer_array_t *addrs, struc
                     rc = ORTE_ERROR;
                     goto eexit;
                 }
+                double rtt = tm.rtt;
                 if( rtt >= 0 && (rtt < best_rtt || best_rtt == -1) ){
                     best_rtt = rtt;
-                    if( best_addr.ai_addrlen < rp->ai_addrlen ){
-                        best_addr.ai_addr = realloc(best_addr.ai_addr, rp->ai_addrlen);
-                    }
-                    memcpy(best_addr.ai_addr, rp->ai_addr, rp->ai_addrlen);
-                    best_addr.ai_addrlen = rp->ai_addrlen;
-                    best_addr.ai_family = rp->ai_family;
+                    *m = tm;
                 }
             }else{
                 char *buf = addrinfo2string(rp);
@@ -1180,15 +1176,13 @@ static int sock_choose_addr(clock_sync_t *cs, opal_pointer_array_t *addrs, struc
         freeaddrinfo(result);
         result = NULL;
     }
-    if( best_rtt >= 0 )
-        *out_addr = best_addr;
 eexit:
     if( result )
         freeaddrinfo(result);
     return rc;
 }
 
-static int sock_connect_to_parent(clock_sync_t *cs)
+static int sock_measure_bias(clock_sync_t *cs)
 {
     // Find the best connection to measure bias
     opal_pointer_array_t *addrs = OBJ_NEW(opal_pointer_array_t);
@@ -1205,7 +1199,7 @@ static int sock_connect_to_parent(clock_sync_t *cs)
         return -1;
     }
     OBJ_RELEASE(addrs);
-
+/*
     int fd = socket(ainfo.ai_family, ainfo.ai_socktype, 0);
     if( fd < 0 ){
         CLKSYNC_OUTPUT( ("CLOCK SYNC: cannot create socket") );
@@ -1223,6 +1217,7 @@ static int sock_connect_to_parent(clock_sync_t *cs)
         return -1;
     }
     return fd;
+*/
 }
 
 static int sock_one_measurement(clock_sync_t *cs, int fd, measurement_t *m)
@@ -1234,7 +1229,9 @@ static int sock_one_measurement(clock_sync_t *cs, int fd, measurement_t *m)
         return ORTE_ERR_BAD_PARAM;
     }
 
-debug_hang(1);
+static int debug_delay = 1;
+debug_hang(debug_delay);
+debug_delay = 0;
 
     if( (rc = form_measurement_request(cs, &buffer) )  ){
         return rc;
@@ -1276,25 +1273,30 @@ eexit:
     return rc;
 }
 
-static int sock_measure_rtt(clock_sync_t *cs, int fd, double *rtt)
+static int sock_measure_rtt(clock_sync_t *cs, int fd, measurement_t *m)
 {
     unsigned int i;
     int rc;
     double min_rtt = -1;
+    clock_sync_t tcs = *cs;
     for(i = 0 ; i < clksync_rtt_measure_count; i++){
         measurement_t result;
-        if( ( rc = sock_one_measurement(cs, fd, &result) ) ){
+        if( ( rc = sock_one_measurement(&tcs, fd, &result) ) ){
             return rc;
         }
-        if( min_rtt > result.rtt ){
+        if( min_rtt < 0 || min_rtt > result.rtt ){
             min_rtt = result.rtt;
+            *m = result;
         }
     }
-
-    *rtt = min_rtt;
+    tcs.req_status = bias_calculated;
+    if( ( rc = sock_one_measurement(&tcs, fd, &result) ) ){
+        return rc;
+    }
     return 0;
 }
 
+/*
 static int sock_measure_bias(clock_sync_t *cs, opal_buffer_t *buffer)
 {
     int rc = 0;
@@ -1332,6 +1334,7 @@ eexit:
     close(fd);
     return rc;
 }
+*/
 
 static void sock_respond(int fd, short flags, void* cbdata)
 {
@@ -1352,18 +1355,44 @@ static void sock_respond(int fd, short flags, void* cbdata)
         goto err_exit;
     }
 
-    buffer = OBJ_NEW(opal_buffer_t);
-    if( buffer == NULL ){
-        goto err_exit;
-    }
-    if( (rc = read_opal_buffer(cs, cfd, buffer) ) ){
-        CLKSYNC_OUTPUT(("Cannot read from fd = %d", cfd));
-        goto err_exit;
-    }
+    state = bias_in_progress;
+    while( state != bias_calculated ){
+        buffer = OBJ_NEW(opal_buffer_t);
+        if( buffer == NULL ){
+            goto err_exit;
+        }
+        if( (rc = read_opal_buffer(cs, cfd, buffer) ) ){
+            CLKSYNC_OUTPUT(("Cannot read from fd = %d", cfd));
+            goto err_exit;
+        }
+    
+        if( ( rc = form_measurement_reply(cs, buffer, &state, &rbuffer ) ) ){
+            CLKSYNC_OUTPUT(("Cannot form_measurement_reply"));
+            goto err_exit;
+        }
 
-    if( ( rc = form_measurement_reply(cs, buffer, &state, &rbuffer ) ) ){
-        CLKSYNC_OUTPUT(("Cannot form_measurement_reply"));
-        goto err_exit;
+        OBJ_RELEASE(buffer);
+        buffer = NULL;
+
+        if( state == bias_calculated ){
+            break;
+        }
+
+        if( (rc = opal_dss.unload(rbuffer,&ptr,&size) ) ){
+            ORTE_ERROR_LOG(rc);
+            goto err_exit;
+        }
+
+        OBJ_RELEASE(rbuffer);
+        rbuffer = NULL;
+
+        if( write(cfd, ptr, size) < size ){
+            CLKSYNC_OUTPUT(("Cannot write to fd = %d", fd));
+            rc = ORTE_ERROR;
+            goto err_exit;
+        }
+        free(ptr);
+        ptr = NULL;
     }
 
     if( state == bias_calculated ){
@@ -1373,18 +1402,6 @@ static void sock_respond(int fd, short flags, void* cbdata)
         }else{
             responder_activate(cs);
         }
-        goto err_exit;
-    }
-
-    if( (rc = opal_dss.unload(buffer,&ptr,&size) ) ){
-        ORTE_ERROR_LOG(rc);
-        goto err_exit;
-    }
-
-    if( write(cfd, ptr, size) < size ){
-        CLKSYNC_OUTPUT(("Cannot write to fd = %d", fd));
-        rc = ORTE_ERROR;
-        goto err_exit;
     }
 
 err_exit:
