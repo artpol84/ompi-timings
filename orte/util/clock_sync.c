@@ -376,10 +376,6 @@ static int form_measurement_reply(clock_sync_t *cs, opal_buffer_t *buffer,
     }
 
     *state = buf32;
-    if( *state == bias_calculated ){
-        *o_rbuffer = NULL;
-        return 0;
-    }
 
     rbuffer = OBJ_NEW(opal_buffer_t);
 
@@ -1314,10 +1310,6 @@ static void sock_respond(int fd, short flags, void* cbdata)
         OBJ_RELEASE(buffer);
         buffer = NULL;
 
-        if( state == bias_calculated ){
-            break;
-        }
-
         if( (rc = opal_dss.unload(rbuffer,&ptr,&size) ) ){
             ORTE_ERROR_LOG(rc);
             goto err_exit;
@@ -1335,13 +1327,11 @@ static void sock_respond(int fd, short flags, void* cbdata)
         ptr = NULL;
     }
 
-    if( state == bias_calculated ){
-        orte_process_name_t next = next_orted(cs);
-        if( PROC_NAME_CMP(next, orte_name_invalid) ){
-            cs->state = finalized;
-        }else{
-            responder_activate(cs);
-        }
+    orte_process_name_t next = next_orted(cs);
+    if( PROC_NAME_CMP(next, orte_name_invalid) ){
+        cs->state = finalized;
+    }else{
+        responder_activate(cs);
     }
 
 err_exit:
