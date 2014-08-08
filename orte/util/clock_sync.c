@@ -99,8 +99,7 @@ typedef enum { bias_in_progress, bias_calculated } measure_status_t;
 
 
 static sync_strategy_t clksync_sync_strategy = sock_direct;
-unsigned int clksync_rtt_measure_count = 100;
-unsigned int clksync_bias_measure_count = 100;
+unsigned int clksync_measure_count = 10;
 unsigned int clksync_timeout = 10000;
 
 typedef struct {
@@ -174,6 +173,7 @@ static void sock_callback(int status, orte_process_name_t* sender,
                           void* cbdata);
 static int sock_parent_addrs(clock_sync_t *cs, opal_pointer_array_t *array);
 static int sock_measure_bias(clock_sync_t *cs, opal_pointer_array_t *addrs);
+
 static int sock_one_iteration(clock_sync_t *cs, int fd, measurement_t *m);
 static int sock_estimate_addr(clock_sync_t *cs, int fd, measurement_t *m);
 static void sock_respond(int fd, short flags, void* cbdata);
@@ -1256,7 +1256,7 @@ static int sock_estimate_addr(clock_sync_t *cs, int fd, measurement_t *m)
     measurement_t result;
 
     clock_sync_t tcs = *cs;
-    for(i = 0 ; i < clksync_rtt_measure_count; i++){
+    for(i = 0 ; i < clksync_measure_count; i++){
         if( ( rc = sock_one_iteration(&tcs, fd, &result) ) ){
             return rc;
         }
