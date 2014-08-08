@@ -94,7 +94,7 @@ typedef enum { no_sync, rml_direct, sock_direct, rml_tree, sock_tree } sync_stra
 
 typedef enum { init, req_measure, resp_init, resp_serve, finalized } clock_sync_state_t;
 
-typedef enum { bias_in_progress, bias_calculated } measure_status_t;
+typedef enum { bias_in_progress, bias_next_addr, bias_calculated } measure_status_t;
 
 
 
@@ -479,7 +479,7 @@ static int calculate_bias(clock_sync_t *cs, double *bias)
 static int read_opal_buffer(clock_sync_t *cs, int fd, opal_buffer_t *buffer)
 {
     int rc = 0, size = 0;
-;
+
     char *buf = malloc(cs->maxsize);
 
     if( buf == NULL ){
@@ -1248,14 +1248,14 @@ eexit:
     return rc;
 }
 
-static int sock_estimate_addr(clock_sync_t *cs, int fd, measurement_t *m)
+static int sock_estimate_addr(clock_sync_t *cs, int fd, measurement_t *m, bool final)
 {
     unsigned int i;
     int rc;
     double min_rtt = -1;
     measurement_t result;
 
-    clock_sync_t tcs = *cs;
+    cs->req_state = bias_in_progress;
     for(i = 0 ; i < clksync_measure_count; i++){
         if( ( rc = sock_one_iteration(&tcs, fd, &result) ) ){
             return rc;
@@ -1265,8 +1265,12 @@ static int sock_estimate_addr(clock_sync_t *cs, int fd, measurement_t *m)
             *m = result;
         }
     }
-    tcs.req_state = bias_calculated;
-    if( ( rc = sock_one_iteration(&tcs, fd, &result) ) ){
+    if( final ){
+        cs->req_state = bias_calculated;
+    }else{
+        cs->req_state = bias_next_addr;
+    }
+    if( ( rc = sock_one_iteration(cs, fd, &result) ) ){
         return rc;
     }
     return 0;
@@ -1292,7 +1296,7 @@ static void sock_respond(int fd, short flags, void* cbdata)
     }
 
     state = bias_in_progress;
-    while( state != bias_calculated ){
+    while( state == bias_in_progress ){
         buffer = OBJ_NEW(opal_buffer_t);
         if( buffer == NULL ){
             goto err_exit;
