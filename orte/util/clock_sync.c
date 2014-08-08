@@ -175,7 +175,7 @@ static int sock_parent_addrs(clock_sync_t *cs, opal_pointer_array_t *array);
 static int sock_measure_bias(clock_sync_t *cs, opal_pointer_array_t *addrs);
 
 static int sock_one_iteration(clock_sync_t *cs, int fd, measurement_t *m);
-static int sock_estimate_addr(clock_sync_t *cs, int fd, measurement_t *m);
+static int sock_estimate_addr(clock_sync_t *cs, int fd, measurement_t *m, bool final);
 static void sock_respond(int fd, short flags, void* cbdata);
 
 // Interface
@@ -1159,7 +1159,8 @@ static int sock_measure_bias(clock_sync_t *cs, opal_pointer_array_t *addrs)
 
             if ( connect_nb(fd, rp->ai_addr, rp->ai_addrlen, timeout) == 0){
                 measurement_t tm;
-                if( sock_estimate_addr(cs, fd, &tm) ){
+                bool final = rp->ai_next == NULL;
+                if( sock_estimate_addr(cs, fd, &tm, final) ){
                     char *buf = addrinfo2string(rp);
                     CLKSYNC_OUTPUT( ( "Cannot communicate with %s", buf) );
                     free(buf);
@@ -1253,7 +1254,7 @@ static int sock_estimate_addr(clock_sync_t *cs, int fd, measurement_t *m, bool f
 
     cs->req_state = bias_in_progress;
     for(i = 0 ; i < clksync_measure_count; i++){
-        if( ( rc = sock_one_iteration(&tcs, fd, &result) ) ){
+        if( ( rc = sock_one_iteration(cs, fd, &result) ) ){
             return rc;
         }
         if( min_rtt < 0 || min_rtt > result.rtt ){
@@ -1327,11 +1328,13 @@ static void sock_respond(int fd, short flags, void* cbdata)
         ptr = NULL;
     }
 
-    orte_process_name_t next = next_orted(cs);
-    if( PROC_NAME_CMP(next, orte_name_invalid) ){
-        cs->state = finalized;
-    }else{
-        responder_activate(cs);
+    if( state == bias_calculated ){
+        orte_process_name_t next = next_orted(cs);
+        if( PROC_NAME_CMP(next, orte_name_invalid) ){
+            cs->state = finalized;
+        }else{
+            responder_activate(cs);
+        }
     }
 
 err_exit:
