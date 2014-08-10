@@ -113,7 +113,7 @@ typedef struct {
     uint32_t snd_count;
     opal_pointer_array_t *childs;
     opal_pointer_array_t *results;
-    orte_state_caddy_t *caddy;
+    orte_job_t *jdata;
     // direct info
     int fd;
     unsigned short port, par_port;
@@ -179,7 +179,7 @@ static int sock_estimate_addr(clock_sync_t *cs, int fd, measurement_t *m, bool f
 static void sock_respond(int fd, short flags, void* cbdata);
 
 // Interface
-int orte_util_clock_sync_hnp_init(orte_state_caddy_t *caddy);
+int orte_util_clock_sync_hnp_init(orte_job_t *jdata);
 int orte_util_clock_sync_orted_init(void);
 
 //---------------- Utility functions -------------------------
@@ -890,8 +890,8 @@ static void rml_callback(int status, orte_process_name_t* sender,
         break;
     case finalized:
         if( cs->is_hnp ){
-            cs->caddy->jdata->state = ORTE_JOB_STATE_DAEMONS_REPORTED;
-            ORTE_ACTIVATE_JOB_STATE(cs->caddy->jdata, ORTE_JOB_STATE_VM_READY);
+            cs->jdata->state = ORTE_JOB_STATE_DAEMONS_REPORTED;
+            ORTE_ACTIVATE_JOB_STATE(cs->jdata, ORTE_JOB_STATE_VM_READY);
         }
         orte_rml.recv_cancel(ORTE_NAME_WILDCARD, ORTE_RML_TAG_TIMING_CLOCK_SYNC);
         double bias;
@@ -1342,9 +1342,8 @@ static void sock_respond(int fd, short flags, void* cbdata)
         if( PROC_NAME_CMP(next, orte_name_invalid) ){
             cs->state = finalized;
             if( cs->is_hnp ){
-                cs->caddy->jdata->state = ORTE_JOB_STATE_DAEMONS_REPORTED;
-                ORTE_ACTIVATE_JOB_STATE(cs->caddy->jdata, ORTE_JOB_STATE_VM_READY);
-                OBJ_RELEASE(cs->caddy);
+                cs->jdata->state = ORTE_JOB_STATE_DAEMONS_REPORTED;
+                ORTE_ACTIVATE_JOB_STATE(cs->jdata, ORTE_JOB_STATE_VM_READY);
             }
         }else{
             responder_activate(cs);
@@ -1366,14 +1365,14 @@ err_exit:
     }
 }
 
-int orte_util_clock_sync_hnp_init(orte_state_caddy_t *caddy)
+int orte_util_clock_sync_hnp_init(orte_job_t *jdata)
 {
 
     clock_sync_t *cs;
     if( hnp_init_state(&cs) ){
         return -1;
     }
-    cs->caddy = caddy;
+    cs->jdata = jdata;
 
     switch( clksync_sync_strategy ){
     case rml_direct:
