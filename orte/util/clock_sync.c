@@ -1159,7 +1159,7 @@ static int sock_measure_bias(clock_sync_t *cs, opal_pointer_array_t *addrs)
 
             if ( connect_nb(fd, rp->ai_addr, rp->ai_addrlen, timeout) == 0){
                 measurement_t tm;
-                bool final = rp->ai_next == NULL;
+                bool final = (i == asize-1) && (rp->ai_next == NULL);
                 if( sock_estimate_addr(cs, fd, &tm, final) ){
                     char *buf = addrinfo2string(rp);
                     CLKSYNC_OUTPUT( ( "Cannot communicate with %s", buf) );
@@ -1332,6 +1332,10 @@ static void sock_respond(int fd, short flags, void* cbdata)
         orte_process_name_t next = next_orted(cs);
         if( PROC_NAME_CMP(next, orte_name_invalid) ){
             cs->state = finalized;
+            if( cs->is_hnp ){
+                cs->caddy->jdata->state = ORTE_JOB_STATE_DAEMONS_REPORTED;
+                ORTE_ACTIVATE_JOB_STATE(cs->caddy->jdata, ORTE_JOB_STATE_VM_READY);
+            }
         }else{
             responder_activate(cs);
         }
