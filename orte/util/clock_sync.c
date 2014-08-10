@@ -784,10 +784,10 @@ static int base_hnp_init_direct(clock_sync_t *cs)
             // TODO: Can this happen?
             continue;
         }
-        int rc;
-        if( (rc = opal_pointer_array_add(cs->childs, daemon)) ){
+        if( (rc = opal_pointer_array_add(cs->childs, daemon)) < 0 ){
             goto err_exit;
         }
+        rc = 0;
     }
 
     return OPAL_SUCCESS;
@@ -795,9 +795,11 @@ static int base_hnp_init_direct(clock_sync_t *cs)
 err_exit:
     if( cs->childs != NULL ){
         free(cs->childs);
+        cs->childs = NULL;
     }
     if( cs->results != NULL ){
         free(cs->results);
+        cs->results = NULL;
     }
     if( rc != OPAL_SUCCESS){
         ORTE_ERROR_LOG(rc);
@@ -940,10 +942,11 @@ static int rml_process(clock_sync_t *cs, orte_process_name_t* sender, opal_buffe
         return rc;
     }
 
-    if( ( rc = opal_pointer_array_add(cs->results, result ) ) ){
+    if( ( rc = opal_pointer_array_add(cs->results, result ) ) < 0 ){
         OPAL_ERROR_LOG(rc);
         return ORTE_ERROR;
     }
+    rc = 0;
 
     if( cs->snd_count >= MAX_COUNT ){
         if( opal_pointer_array_get_size(cs->childs) ){
@@ -1099,7 +1102,10 @@ static int sock_parent_addrs(clock_sync_t *cs, opal_pointer_array_t *array)
             rc = ORTE_ERR_MEM_LIMIT_EXCEEDED;
             goto eexit3;
         }
-        opal_pointer_array_add(array, (void*)ptr);
+        if( (rc = opal_pointer_array_add(array, (void*)ptr) ) < 0 ){
+            goto eexit3;
+        }
+        rc = 0;
     }
 eexit3:
     opal_argv_free(addrs);
