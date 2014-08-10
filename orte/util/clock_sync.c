@@ -1121,14 +1121,14 @@ static int sock_measure_bias(clock_sync_t *cs, opal_pointer_array_t *addrs)
 {
     struct addrinfo *result, *rp;
     int rc = 0;
-
+/*
     // TODO: remove!
     {
         static int debug_delay = 1;
         debug_hang(debug_delay);
         debug_delay = 0;
     }
-
+*/
     // Prepare timeout
     struct timeval  timeout;
     timeout.tv_sec = clksync_timeout / 1000000;
