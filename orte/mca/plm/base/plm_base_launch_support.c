@@ -159,7 +159,8 @@ void orte_plm_base_daemons_reported(int fd, short args, void *cbdata)
         orte_ras_base_display_alloc();
     }
 
-    orte_util_clock_sync_hnp_init(caddy);
+
+    orte_util_clock_sync_hnp_init(caddy->jdata);
 
     /* progress the job */
 //    caddy->jdata->state = ORTE_JOB_STATE_DAEMONS_REPORTED;
