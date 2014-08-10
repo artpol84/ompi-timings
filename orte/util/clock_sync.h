@@ -28,7 +28,7 @@
 BEGIN_C_DECLS
 
 ORTE_DECLSPEC int orte_util_clock_sync_orted_init(void);
-ORTE_DECLSPEC int orte_util_clock_sync_hnp_init(orte_state_caddy_t *caddy);
+ORTE_DECLSPEC int orte_util_clock_sync_hnp_init(orte_job_t *jdata);
 END_C_DECLS
 
 #endif
