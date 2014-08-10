@@ -1344,6 +1344,7 @@ static void sock_respond(int fd, short flags, void* cbdata)
             if( cs->is_hnp ){
                 cs->caddy->jdata->state = ORTE_JOB_STATE_DAEMONS_REPORTED;
                 ORTE_ACTIVATE_JOB_STATE(cs->caddy->jdata, ORTE_JOB_STATE_VM_READY);
+                OBJ_RELEASE(cs->caddy);
             }
         }else{
             responder_activate(cs);
