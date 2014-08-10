@@ -1116,6 +1116,13 @@ static int sock_measure_bias(clock_sync_t *cs, opal_pointer_array_t *addrs)
     struct addrinfo *result, *rp;
     int rc = 0;
 
+    // TODO: remove!
+    {
+        static int debug_delay = 1;
+        debug_hang(debug_delay);
+        debug_delay = 0;
+    }
+
     // Prepare timeout
     struct timeval  timeout;
     timeout.tv_sec = clksync_timeout / 1000000;
@@ -1200,10 +1207,6 @@ static int sock_one_iteration(clock_sync_t *cs, int fd, measurement_t *m)
     if( m == NULL ){
         return ORTE_ERR_BAD_PARAM;
     }
-
-static int debug_delay = 1;
-debug_hang(debug_delay);
-debug_delay = 0;
 
     if( (rc = form_measurement_request(cs, &buffer) )  ){
         return rc;
