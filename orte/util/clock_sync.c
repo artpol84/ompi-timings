@@ -1121,14 +1121,7 @@ static int sock_measure_bias(clock_sync_t *cs, opal_pointer_array_t *addrs)
 {
     struct addrinfo *result, *rp;
     int rc = 0;
-/*
-    // TODO: remove!
-    {
-        static int debug_delay = 1;
-        debug_hang(debug_delay);
-        debug_delay = 0;
-    }
-*/
+
     // Prepare timeout
     struct timeval  timeout;
     timeout.tv_sec = clksync_timeout / 1000000;
@@ -1198,6 +1191,14 @@ static int sock_measure_bias(clock_sync_t *cs, opal_pointer_array_t *addrs)
     }
     cs->bias = best_m.bias;
     cs->rtt = best_m.rtt;
+
+    float rtt = cs->rtt;
+    float bias = cs->bias;
+    CLKSYNC_OUTPUT( ( "Result bias is: %.7f[%e] (rtt = %.7f[%e])", bias, bias, rtt, rtt) ); 
+    FILE *fp = fopen("orted_out","a");
+    fprintf(fp, "Result bias is: %.7f[%e] (rtt = %.7f[%e])\n", bias, bias, rtt, rtt);
+    fclose(fp);
+
 eexit:
     if( result )
         freeaddrinfo(result);
