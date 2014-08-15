@@ -864,9 +864,6 @@ int orte_daemon(int argc, char *argv[])
     }
     ret = ORTE_SUCCESS;
 
-    opal_output(0,"%s[%s]: call clock sync initialisation\n",ORTE_NAME_PRINT(ORTE_PROC_MY_NAME), __FILE__);
-    orte_util_clock_sync_orted_init();
-
     /* loop the event lib until an exit event is detected */
     while (orte_event_base_active) {
         opal_event_loop(orte_event_base, OPAL_EVLOOP_ONCE);
