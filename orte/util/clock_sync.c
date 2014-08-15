@@ -1194,7 +1194,7 @@ static int sock_measure_bias(clock_sync_t *cs, opal_pointer_array_t *addrs)
     float bias = cs->bias;
     CLKSYNC_OUTPUT( ( "Result bias is: %.7f[%e] (rtt = %.7f[%e])", bias, bias, rtt, rtt) ); 
     FILE *fp = fopen("orted_out","a");
-    fprintf(fp, "Result bias is: %.7f[%e] (rtt = %.7f[%e])\n", bias, bias, rtt, rtt);
+    fprintf(fp, "%s Result bias is: %e (rtt = %e)\n", ORTE_NAME_PRINT(ORTE_PROC_MY_NAME), bias, rtt);
     fclose(fp);
 
 eexit:
@@ -1373,7 +1373,7 @@ int orte_util_clock_sync_hnp_init(opal_buffer_t *relay, delivery_fn fn)
     cs->fn = fn;
     cs->relay = relay;
 
-    debug_hang(1);
+//    debug_hang(1);
 
     switch( clksync_sync_strategy ){
     case rml_direct:
@@ -1411,7 +1411,7 @@ int orte_util_clock_sync_orted_init(opal_buffer_t *relay, delivery_fn fn)
 {
     clock_sync_t *cs = NULL;
 
-    debug_hang(1);
+//    debug_hang(1);
 
     int rc = orted_init_state(&cs);
     if( rc ){
