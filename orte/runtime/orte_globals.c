@@ -59,7 +59,12 @@ opal_list_t orte_proc_states;
 int orte_clean_output = -1;
 
 /* globals used by RTE */
-bool orte_timing;
+
+
+// New timing framework
+bool orte_timing = false;
+orte_util_sync_strategy_t orte_timing_sync = clksync_no;
+
 FILE *orte_timing_output = NULL;
 bool orte_timing_details;
 bool orte_debug_daemons_file_flag = false;
