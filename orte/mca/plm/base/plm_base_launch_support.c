@@ -42,7 +42,6 @@
 #include "orte/util/dash_host/dash_host.h"
 #include "orte/util/session_dir.h"
 #include "orte/util/show_help.h"
-#include "orte/util/clock_sync.h"
 #include "orte/mca/errmgr/errmgr.h"
 #include "orte/mca/ess/ess.h"
 #include "orte/mca/iof/iof.h"
@@ -159,12 +158,9 @@ void orte_plm_base_daemons_reported(int fd, short args, void *cbdata)
         orte_ras_base_display_alloc();
     }
 
-
-    orte_util_clock_sync_hnp_init(caddy->jdata);
-
     /* progress the job */
-//    caddy->jdata->state = ORTE_JOB_STATE_DAEMONS_REPORTED;
-//    ORTE_ACTIVATE_JOB_STATE(caddy->jdata, ORTE_JOB_STATE_VM_READY);
+    caddy->jdata->state = ORTE_JOB_STATE_DAEMONS_REPORTED;
+    ORTE_ACTIVATE_JOB_STATE(caddy->jdata, ORTE_JOB_STATE_VM_READY);
 
     /* cleanup */
     OBJ_RELEASE(caddy);
@@ -572,9 +568,11 @@ void orte_plm_base_launch_apps(int fd, short args, void *cbdata)
      */
     caddy->jdata->num_daemons_reported++;
 
+
+
     /* if requested, setup a timer - if we don't launch within the
-     * defined time, then we know things have failed
-     */
+         * defined time, then we know things have failed
+         */
     if (0 < orte_startup_timeout) {
         OPAL_OUTPUT_VERBOSE((5, orte_plm_base_framework.framework_output,
                              "%s plm:base:launch defining timeout for job %s",
@@ -590,6 +588,7 @@ void orte_plm_base_launch_apps(int fd, short args, void *cbdata)
         orte_set_attribute(&jdata->attributes, ORTE_JOB_FAILURE_TIMER_EVENT, ORTE_ATTR_LOCAL, timer, OPAL_PTR);
         opal_event_evtimer_add(timer->ev, &timer->tv);
     }
+
 
     /* cleanup */
     OBJ_RELEASE(caddy);

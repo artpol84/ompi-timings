@@ -113,7 +113,11 @@ typedef struct {
     uint32_t snd_count;
     opal_pointer_array_t *childs;
     opal_pointer_array_t *results;
-    orte_job_t *jdata;
+
+    // finalize data
+    delivery_fn fn;
+    opal_buffer_t *relay;
+
     // direct info
     int fd;
     unsigned short port, par_port;
@@ -177,10 +181,6 @@ static int sock_measure_bias(clock_sync_t *cs, opal_pointer_array_t *addrs);
 static int sock_one_iteration(clock_sync_t *cs, int fd, measurement_t *m);
 static int sock_estimate_addr(clock_sync_t *cs, int fd, measurement_t *m, bool final);
 static void sock_respond(int fd, short flags, void* cbdata);
-
-// Interface
-int orte_util_clock_sync_hnp_init(orte_job_t *jdata);
-int orte_util_clock_sync_orted_init(void);
 
 //---------------- Utility functions -------------------------
 
@@ -889,10 +889,7 @@ static void rml_callback(int status, orte_process_name_t* sender,
         cs->state = resp_serve;
         break;
     case finalized:
-        if( cs->is_hnp ){
-            cs->jdata->state = ORTE_JOB_STATE_DAEMONS_REPORTED;
-            ORTE_ACTIVATE_JOB_STATE(cs->jdata, ORTE_JOB_STATE_VM_READY);
-        }
+        cs->fn(cs->relay);
         orte_rml.recv_cancel(ORTE_NAME_WILDCARD, ORTE_RML_TAG_TIMING_CLOCK_SYNC);
         double bias;
         if( calculate_bias(cs, &bias) ){
@@ -1035,6 +1032,7 @@ static void sock_callback(int status, orte_process_name_t* sender,
         cs->state = resp_serve;
     } else {
         cs->state = finalized;
+        cs->fn(cs->relay);
     }
 
     CLKSYNC_OUTPUT( ("callback is called, final state = %s\n", state_to_str(cs->state)) );
@@ -1341,10 +1339,7 @@ static void sock_respond(int fd, short flags, void* cbdata)
         orte_process_name_t next = next_orted(cs);
         if( PROC_NAME_CMP(next, orte_name_invalid) ){
             cs->state = finalized;
-            if( cs->is_hnp ){
-                cs->jdata->state = ORTE_JOB_STATE_DAEMONS_REPORTED;
-                ORTE_ACTIVATE_JOB_STATE(cs->jdata, ORTE_JOB_STATE_VM_READY);
-            }
+            cs->fn(cs->relay);
         }else{
             responder_activate(cs);
         }
@@ -1365,14 +1360,19 @@ err_exit:
     }
 }
 
-int orte_util_clock_sync_hnp_init(orte_job_t *jdata)
+
+
+int orte_util_clock_sync_hnp_init(opal_buffer_t *relay, delivery_fn fn)
 {
 
     clock_sync_t *cs;
     if( hnp_init_state(&cs) ){
         return -1;
     }
-    cs->jdata = jdata;
+    cs->fn = fn;
+    cs->relay = relay;
+
+    debug_hang(1);
 
     switch( clksync_sync_strategy ){
     case rml_direct:
@@ -1406,14 +1406,18 @@ err_exit:
     return -1;
 }
 
-int orte_util_clock_sync_orted_init()
+int orte_util_clock_sync_orted_init(opal_buffer_t *relay, delivery_fn fn)
 {
     clock_sync_t *cs = NULL;
+
+    debug_hang(1);
 
     int rc = orted_init_state(&cs);
     if( rc ){
         return rc;
     }
+    cs->fn = fn;
+    cs->relay = relay;
 
     switch( clksync_sync_strategy ){
     case rml_direct:

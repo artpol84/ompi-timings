@@ -44,6 +44,21 @@
 #include "orte/mca/grpcomm/grpcomm_types.h"
 #include "orte/mca/grpcomm/grpcomm.h"
 #include "orte/mca/grpcomm/base/base.h"
+#include "orte/util/clock_sync.h"
+
+static int orte_grpcomm_base_xcast_local_delivery(opal_buffer_t *relay)
+{
+    int ret;
+    /* now send it to myself for processing */
+    if (0 > (ret = orte_rml.send_buffer_nb(ORTE_PROC_MY_NAME, relay,
+                                           ORTE_RML_TAG_DAEMON,
+                                           orte_rml_send_callback, NULL))) {
+        ORTE_ERROR_LOG(ret);
+        OBJ_RELEASE(relay);
+        return ret;
+    }
+    return 0;
+}
 
 void orte_grpcomm_base_xcast_recv(int status, orte_process_name_t* sender,
                                   opal_buffer_t* buffer, orte_rml_tag_t tag,
@@ -199,12 +214,17 @@ void orte_grpcomm_base_xcast_recv(int status, orte_process_name_t* sender,
     /* cleanup */
     OBJ_DESTRUCT(&coll);
 
-    /* now send it to myself for processing */
-    if (0 > (ret = orte_rml.send_buffer_nb(ORTE_PROC_MY_NAME, relay,
-                                           ORTE_RML_TAG_DAEMON,
-                                           orte_rml_send_callback, NULL))) {
-        ORTE_ERROR_LOG(ret);
-        OBJ_RELEASE(relay);
+    // TODO: Add proper flags to handle bias measurement
+    if(ORTE_DAEMON_ADD_LOCAL_PROCS == command && true){
+        if( ORTE_PROC_IS_HNP ){
+            // TODO: Handle errors properly
+            orte_util_clock_sync_hnp_init(relay, orte_grpcomm_base_xcast_local_delivery);
+        }else{
+            // TODO: Handle errors properly
+            orte_util_clock_sync_orted_init(relay, orte_grpcomm_base_xcast_local_delivery);
+        }
+    }else{
+        orte_grpcomm_base_xcast_local_delivery(relay);
     }
 }
 

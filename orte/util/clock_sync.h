@@ -27,8 +27,9 @@
 
 BEGIN_C_DECLS
 
-ORTE_DECLSPEC int orte_util_clock_sync_orted_init(void);
-ORTE_DECLSPEC int orte_util_clock_sync_hnp_init(orte_job_t *jdata);
+typedef int (*delivery_fn)(opal_buffer_t *relay);
+ORTE_DECLSPEC int orte_util_clock_sync_orted_init(opal_buffer_t *relay, delivery_fn fn);
+ORTE_DECLSPEC int orte_util_clock_sync_hnp_init(opal_buffer_t *relay, delivery_fn fn);
 END_C_DECLS
 
 #endif
