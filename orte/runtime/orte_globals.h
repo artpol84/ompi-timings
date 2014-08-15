@@ -441,6 +441,8 @@ ORTE_DECLSPEC orte_vpid_t orte_get_lowest_vpid_alive(orte_jobid_t job);
 ORTE_DECLSPEC extern bool orte_timing;
 typedef enum { clksync_no = 0, clksync_direct, clksync_tree, clksync_max } orte_util_sync_strategy_t;
 ORTE_DECLSPEC extern orte_util_sync_strategy_t orte_timing_sync;
+ORTE_DECLSPEC int orte_timing_sync_int;
+
 
 ORTE_DECLSPEC extern FILE *orte_timing_output;
 ORTE_DECLSPEC extern bool orte_timing_details;

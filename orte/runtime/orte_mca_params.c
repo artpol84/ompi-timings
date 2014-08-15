@@ -339,17 +339,17 @@ int orte_register_params(void)
                                   &orte_timing);
 
 
-    int clksync_tmp = 0;
+    orte_timing_sync_int = 0;
     (void) mca_base_var_register ("orte", "orte", NULL, "timing_sync",
                                   "Force orted's to sync timers: (0 - no [default], 1 - direct with HNP, 2 - according to routed structure)",
                                   MCA_BASE_VAR_TYPE_BOOL, NULL, 0, 0,
                                   OPAL_INFO_LVL_9, MCA_BASE_VAR_SCOPE_READONLY,
-                                  &clksync_tmp);
-    if( clksync_tmp < 0 || clksync_tmp >= clksync_max ){
+                                  &orte_timing_sync_int);
+    if( orte_timing_sync_int < 0 || orte_timing_sync_int >= clksync_max ){
         // Wrong value of clksync type, drop to default
         orte_timing_sync = clksync_no;
     }else{
-        orte_timing_sync = (orte_util_sync_strategy_t)clksync_tmp;
+        orte_timing_sync = (orte_util_sync_strategy_t)orte_timing_sync_int;
     }
     // TODO: REMOVE!!
     opal_output(0,"Clock sync type is %d", (int)orte_timing_sync);
