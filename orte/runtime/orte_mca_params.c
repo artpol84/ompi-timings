@@ -338,16 +338,15 @@ int orte_register_params(void)
                                   OPAL_INFO_LVL_9, MCA_BASE_VAR_SCOPE_READONLY,
                                   &orte_timing);
 
-
-    orte_timing_sync_int = 0;
+    static int orte_timing_sync_int = 0;
     (void) mca_base_var_register ("orte", "orte", NULL, "timing_sync",
                                   "Force orted's to sync timers: (0 - no [default], 1 - direct with HNP, 2 - according to routed structure)",
                                   MCA_BASE_VAR_TYPE_INT, NULL, 0, 0,
                                   OPAL_INFO_LVL_9, MCA_BASE_VAR_SCOPE_READONLY,
                                   &orte_timing_sync_int);
-    if( orte_timing_sync_int < 0 || orte_timing_sync_int >= clksync_max ){
+    if( orte_timing_sync_int < 0 || orte_timing_sync_int >= cs_max ){
         // Wrong value of clksync type, drop to default
-        orte_timing_sync = clksync_no;
+        orte_timing_sync = cs_no;
     }else{
         orte_timing_sync = (orte_util_sync_strategy_t)orte_timing_sync_int;
     }

@@ -214,7 +214,7 @@ void orte_grpcomm_base_xcast_recv(int status, orte_process_name_t* sender,
     /* cleanup */
     OBJ_DESTRUCT(&coll);
 
-    if( ORTE_DAEMON_ADD_LOCAL_PROCS == command && (orte_timing_sync > clksync_no) ){
+    if( ORTE_DAEMON_ADD_LOCAL_PROCS == command && (orte_timing_sync > cs_no) ){
         if( ORTE_PROC_IS_HNP ){
             // TODO: Handle errors properly
             orte_util_clock_sync_hnp_init(relay, orte_grpcomm_base_xcast_local_delivery);

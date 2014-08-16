@@ -44,6 +44,8 @@
 #include <unistd.h>
 #include <fcntl.h>
 
+#include "orte/types.h"
+#include "orte/util/name_fns.h"
 #include "opal/util/output.h"
 #include "orte/util/clock_sync.h"
 #include "opal/mca/event/event.h"
@@ -68,17 +70,17 @@ static void debug_hang(int val)
 
 inline static void _clksync_output(char *fmt, ... )
 {
-    char *pref = "%s [%s]: ";
+    char *pref = "%s %s [%s]: ";
     char *suf = "\n";
     va_list args;
     va_start( args, fmt );
     int size = strlen(fmt);
-    size += strlen(pref) + strlen(suf) + 10;
+    size += strlen(pref) + strlen(suf) + strlen(orte_process_info.nodename) + 10;
     char *tbuf = malloc( sizeof(char) * size);
 
     if( tbuf ){
         snprintf(tbuf, size, "%s%s%s", pref, fmt, suf);
-        opal_output(0, tbuf, ORTE_NAME_PRINT(ORTE_PROC_MY_NAME), __FUNCTION__, args );
+        opal_output(0, tbuf, orte_process_info.nodename, ORTE_NAME_PRINT(ORTE_PROC_MY_NAME), __FUNCTION__, args );
         free(tbuf);
     }else{
         opal_output(0, "%s [%s]: Cannot allocate memory!\n", ORTE_NAME_PRINT(ORTE_PROC_MY_NAME), __FUNCTION__ );
@@ -90,15 +92,10 @@ inline static void _clksync_output(char *fmt, ... )
 
 #define PROC_NAME_CMP(p1, p2) ( p1.jobid == p2.jobid && p1.vpid == p2.vpid )
 
-typedef enum { no_sync, rml_direct, sock_direct, rml_tree, sock_tree } sync_strategy_t;
-
 typedef enum { init, req_measure, resp_init, resp_serve, finalized } clock_sync_state_t;
 
 typedef enum { bias_in_progress, bias_next_addr, bias_calculated } measure_status_t;
 
-
-
-static sync_strategy_t clksync_sync_strategy = sock_direct;
 unsigned int clksync_measure_count = 10;
 unsigned int clksync_timeout = 10000;
 
@@ -158,11 +155,12 @@ static int responder_init(clock_sync_t *cs);
 static int max_bufsize(clock_sync_t *cs);
 static int responder_activate(clock_sync_t *cs);
 static int requester_init(clock_sync_t *cs, opal_buffer_t *buffer);
-static int base_hnp_init_direct(clock_sync_t *cs);
+static int hnp_init_base(clock_sync_t *cs);
 static int hnp_init_state(clock_sync_t **cs);
-static int base_orted_init_direct(clock_sync_t *cs);
+static int orted_init_base(clock_sync_t *cs);
 static int orted_init_state(clock_sync_t **cs);
 
+/* TODO implement RML-based bias calculation
 // RML routines
 static void rml_callback(int status, orte_process_name_t* sender,
                          opal_buffer_t *buffer, orte_rml_tag_t tag,
@@ -171,6 +169,8 @@ static int rml_request(clock_sync_t *cs);
 static int rml_process(clock_sync_t *cs, orte_process_name_t* sender, opal_buffer_t *buffer);
 static int rml_respond(clock_sync_t *cs, orte_process_name_t* sender,
                        opal_buffer_t *buffer);
+*/
+
 // Socket routines
 static void sock_callback(int status, orte_process_name_t* sender,
                           opal_buffer_t *buffer, orte_rml_tag_t tag,
@@ -423,11 +423,16 @@ static int extract_measurement_reply(clock_sync_t *cs, opal_buffer_t *buffer, me
     measurement_t mes = { rtt, bias };
     *result = mes;
 
-    CLKSYNC_OUTPUT( ("rtt = %15.15lf, bias = %15.15lf", rtt, bias) );
+    char rtt_s[256], bias_s[256];
+    sprintf(rtt_s,"%e", rtt);
+    sprintf(bias_s, "%e", bias);
+    CLKSYNC_OUTPUT( ("rtt = %s, bias = %s", rtt_s, bias_s) );
 
     return 0;
 }
 
+/*
+ TODO: remove before release
 static int calculate_bias(clock_sync_t *cs, double *bias)
 {
     double cum_bias;
@@ -471,6 +476,7 @@ static int calculate_bias(clock_sync_t *cs, double *bias)
     *bias = cum_bias / count + cs->par_bias;
     return 0;
 }
+*/
 
 static int read_opal_buffer(clock_sync_t *cs, int fd, opal_buffer_t *buffer)
 {
@@ -510,11 +516,11 @@ orte_process_name_t current_orted(clock_sync_t *cs)
     if( size <= cs->cur_daemon ){
         return orte_name_invalid;
     }
-    orte_proc_t *daemon=NULL;
-    if( NULL == (daemon = (orte_proc_t*)opal_pointer_array_get_item(cs->childs, cs->cur_daemon))) {
+    orte_process_name_t *daemon=NULL;
+    if( NULL == (daemon = (orte_process_name_t*)opal_pointer_array_get_item(cs->childs, cs->cur_daemon))) {
         return orte_name_invalid;
     }
-    return daemon->name;
+    return *daemon;
 }
 
 orte_process_name_t next_orted(clock_sync_t *cs)
@@ -524,11 +530,11 @@ orte_process_name_t next_orted(clock_sync_t *cs)
     if( size <= cs->cur_daemon ){
         return orte_name_invalid;
     }
-    orte_proc_t *daemon=NULL;
-    if( NULL == (daemon = (orte_proc_t*)opal_pointer_array_get_item(cs->childs, cs->cur_daemon))) {
+    orte_process_name_t *daemon = NULL;
+    if( NULL == (daemon = (orte_process_name_t*)opal_pointer_array_get_item(cs->childs, cs->cur_daemon))) {
         return orte_name_invalid;
     }
-    return daemon->name;
+    return *daemon;
 }
 
 static int max_bufsize(clock_sync_t *cs)
@@ -586,9 +592,9 @@ static int responder_init(clock_sync_t *cs)
 {
     int rc;
 
-    switch( clksync_sync_strategy ){
-    case sock_direct:
-    case sock_tree:{
+    switch( orte_timing_sync ){
+    case cs_sock_direct:
+    case cs_sock_tree:{
         // setup working socket event
         if( (rc = create_listen_sock(&cs->fd, &cs->port) ) )
             return rc;
@@ -604,8 +610,8 @@ static int responder_init(clock_sync_t *cs)
         opal_event_add(cs->ev,0);
         break;
     }
-    case rml_direct:
-    case rml_tree:
+    case cs_rml_direct:
+    case cs_rml_tree:
         break;
     default:
         return -1;
@@ -648,12 +654,12 @@ static int responder_activate(clock_sync_t *cs)
         goto err_exit;
     }
 
-    switch( clksync_sync_strategy ){
-    case rml_direct:
-    case rml_tree:
+    switch( orte_timing_sync ){
+    case cs_rml_direct:
+    case cs_rml_tree:
         break;
-    case sock_direct:
-    case sock_tree:{
+    case cs_sock_direct:
+    case cs_sock_tree:{
         // Send contact information
         if( NULL == (contact_info = orte_rml.get_contact_info() ) ){
             goto err_exit;
@@ -715,12 +721,12 @@ static int requester_init(clock_sync_t *cs, opal_buffer_t *buffer)
         goto err_exit;
     }
 
-    switch( clksync_sync_strategy ){
-    case rml_direct:
-    case rml_tree:
+    switch( orte_timing_sync ){
+    case cs_rml_direct:
+    case cs_rml_tree:
         break;
-    case sock_direct:
-    case sock_tree:{
+    case cs_sock_direct:
+    case cs_sock_tree:{
         idx = 1;
         if( OPAL_SUCCESS != ( rc = opal_dss.unpack(buffer, &cs->par_uri, &idx, OPAL_STRING) ) ){
             rc = OPAL_ERROR;
@@ -753,7 +759,7 @@ err_exit:
     return rc;
 }
 
-static int base_hnp_init_direct(clock_sync_t *cs)
+static int hnp_init_base(clock_sync_t *cs)
 {
     int rc = OPAL_SUCCESS;
 
@@ -773,6 +779,25 @@ static int base_hnp_init_direct(clock_sync_t *cs)
         goto err_exit;
     }
 
+    return OPAL_SUCCESS;
+
+err_exit:
+    if( cs->childs != NULL ){
+        free(cs->childs);
+        cs->childs = NULL;
+    }
+    if( cs->results != NULL ){
+        free(cs->results);
+        cs->results = NULL;
+    }
+    ORTE_ERROR_LOG(rc);
+    return rc;
+}
+
+static int hnp_init_direct(clock_sync_t *cs)
+{
+    int rc = OPAL_SUCCESS;
+
     orte_job_t *jorted = orte_get_job_data_object(ORTE_PROC_MY_NAME->jobid);
     int dsize = opal_pointer_array_get_size(jorted->procs);
     int i;
@@ -784,7 +809,9 @@ static int base_hnp_init_direct(clock_sync_t *cs)
             // TODO: Can this happen?
             continue;
         }
-        if( (rc = opal_pointer_array_add(cs->childs, daemon)) < 0 ){
+        orte_process_name_t *name = malloc(sizeof(orte_process_name_t));
+        *name = daemon->name;
+        if( (rc = opal_pointer_array_add(cs->childs, name)) < 0 ){
             goto err_exit;
         }
         rc = 0;
@@ -807,16 +834,57 @@ err_exit:
     return rc;
 }
 
-static int hnp_init_state(clock_sync_t **cs)
+static int daemon_init_tree(clock_sync_t *cs)
 {
-    *cs = malloc(sizeof(clock_sync_t));
-    if( *cs == NULL ){
-        return ORTE_ERR_OUT_OF_RESOURCE;
+    int rc = OPAL_SUCCESS;
+    orte_grpcomm_collective_t coll;
+
+    /* setup the relay list */
+    OBJ_CONSTRUCT(&coll, orte_grpcomm_collective_t);
+
+    /* get the list of next recipients from the routed module */
+    orte_routed.get_routing_list(ORTE_GRPCOMM_XCAST, &coll);
+
+    /* if list is empty, no relay is required */
+    if (opal_list_is_empty(&coll.targets)) {
+        CLKSYNC_OUTPUT(("No childrens"));
+        goto cleanup;
     }
-    return  base_hnp_init_direct(*cs);
+
+    /* send the message to each recipient on list, deconstructing it as we go */
+    opal_list_item_t *item;
+    while (NULL != (item = opal_list_remove_first(&coll.targets))) {
+        orte_namelist_t *daemon = (orte_namelist_t*)item;
+        orte_process_name_t *name = malloc(sizeof(orte_process_name_t));
+        *name = daemon->name;
+        if( (rc = opal_pointer_array_add(cs->childs, name)) < 0 ){
+            goto err_exit;
+        }
+        rc = 0;
+    }
+
+cleanup:
+    /* cleanup */
+    OBJ_DESTRUCT(&coll);
+
+    return OPAL_SUCCESS;
+
+err_exit:
+    if( cs->childs != NULL ){
+        free(cs->childs);
+        cs->childs = NULL;
+    }
+    if( cs->results != NULL ){
+        free(cs->results);
+        cs->results = NULL;
+    }
+    if( rc != OPAL_SUCCESS){
+        ORTE_ERROR_LOG(rc);
+    }
+    return rc;
 }
 
-static int base_orted_init_direct(clock_sync_t *cs)
+static int orted_init_base(clock_sync_t *cs)
 {
     memset(cs, 0, sizeof(*cs));
     cs->is_hnp = false;
@@ -836,6 +904,33 @@ static int base_orted_init_direct(clock_sync_t *cs)
     return 0;
 }
 
+static int hnp_init_state(clock_sync_t **cs)
+{
+    *cs = malloc(sizeof(clock_sync_t));
+    if( *cs == NULL ){
+        return ORTE_ERR_OUT_OF_RESOURCE;
+    }
+    int rc;
+    if( (rc = hnp_init_base(*cs) ) ){
+        return rc;
+    }
+
+    switch( orte_timing_sync ){
+    case cs_sock_direct:
+    case cs_rml_direct:
+        rc = hnp_init_direct(*cs);
+        break;
+    case cs_sock_tree:
+    case cs_rml_tree:
+        rc = daemon_init_tree(*cs);
+        break;
+    default:
+        rc = ORTE_ERROR;
+        break;
+    }
+    return rc;
+}
+
 static int orted_init_state(clock_sync_t **cs)
 {
     *cs = malloc(sizeof(clock_sync_t));
@@ -843,153 +938,22 @@ static int orted_init_state(clock_sync_t **cs)
         return ORTE_ERR_OUT_OF_RESOURCE;
     }
 
-    return base_orted_init_direct(*cs);
-}
-
-// -------------------- RML routines ------------------------------------------
-
-static void rml_callback(int status, orte_process_name_t* sender,
-                         opal_buffer_t *buffer, orte_rml_tag_t tag,
-                         void* cbdata)
-{
-    clock_sync_t *cs = cbdata;
-
-    switch(cs->state){
-    case init:
-        requester_init(cs, buffer);
-        cs->state = req_measure;
-        if( rml_request(cs) ){
-            cs->state = finalized;
-        }
-        break;
-    case req_measure:
-        if( rml_process(cs, sender, buffer) ){
-            cs->state = finalized;
-        }
-        break;
-    case resp_serve:
-        rml_respond(cs, sender, buffer);
-        break;
-    case resp_init:
-        break;
-    default:
-        CLKSYNC_OUTPUT( ("This state is not allowed here: %s", state_to_str(cs->state)) );
-        break;
-    }
-
-
-    switch(cs->state){
-    case req_measure:
-        if( rml_request(cs) ){
-            cs->state = finalized;
-        }
-        break;
-    case resp_init:
-        responder_activate(cs);
-        cs->state = resp_serve;
-        break;
-    case finalized:
-        cs->fn(cs->relay);
-        orte_rml.recv_cancel(ORTE_NAME_WILDCARD, ORTE_RML_TAG_TIMING_CLOCK_SYNC);
-        double bias;
-        if( calculate_bias(cs, &bias) ){
-            CLKSYNC_OUTPUT( ("cannot calculate bias\n") );
-            bias = 0;
-            return;
-        }
-        CLKSYNC_OUTPUT( ("result bias = %15.15lf\n",bias) );
-        break;
-    default:
-        CLKSYNC_OUTPUT( ("This state is not allowed here: %s", state_to_str(cs->state)) );
-        break;
-    }
-
-    CLKSYNC_OUTPUT( ("callback is called, final state = %s\n", state_to_str(cs->state)) );
-}
-
-static int rml_request(clock_sync_t *cs)
-{
     int rc;
-    opal_buffer_t *buffer = NULL;
-    if( (rc = form_measurement_request(cs, &buffer) ) ){
+    if( (rc = orted_init_base(*cs) ) ){
         return rc;
     }
 
-    if (0 > (rc = orte_rml.send_buffer_nb(&cs->parent, buffer, ORTE_RML_TAG_TIMING_CLOCK_SYNC,
-                                          orte_rml_send_callback, NULL))) {
-        ORTE_ERROR_LOG(rc);
-        OBJ_RELEASE(buffer);
-        return rc;
+    switch( orte_timing_sync ){
+    case cs_rml_direct:
+    case cs_sock_direct:
+        break;
+    case cs_sock_tree:
+    case cs_rml_tree:
+        rc = daemon_init_tree(*cs);
+    default:
+        rc = ORTE_ERROR;
+        break;
     }
-    cs->snd_count++;
-
-    CLKSYNC_OUTPUT( ("send measurement request to %s", ORTE_NAME_PRINT(&cs->parent)) );
-    return 0;
-}
-
-
-static int rml_process(clock_sync_t *cs, orte_process_name_t* sender, opal_buffer_t *buffer)
-{
-    int rc;
-
-    CLKSYNC_OUTPUT( ("process %s reply", ORTE_NAME_PRINT(sender)) );
-
-    measurement_t *result = malloc( sizeof(*result) );
-    if( ( rc = extract_measurement_reply(cs, buffer, result) ) ){
-        return rc;
-    }
-
-    if( ( rc = opal_pointer_array_add(cs->results, result ) ) < 0 ){
-        OPAL_ERROR_LOG(rc);
-        return ORTE_ERROR;
-    }
-    rc = 0;
-
-    if( cs->snd_count >= MAX_COUNT ){
-        if( opal_pointer_array_get_size(cs->childs) ){
-            cs->state = resp_serve;
-        }else{
-            cs->state = finalized;
-        }
-    }
-
-    return 0;
-}
-
-static int rml_respond(clock_sync_t *cs,
-                       orte_process_name_t* sender,
-                       opal_buffer_t *buffer)
-{
-    int rc = 0;
-    measure_status_t state;
-    opal_buffer_t *rbuffer = NULL;
-
-    CLKSYNC_OUTPUT( ("called by %s", ORTE_NAME_PRINT(sender)) );
-
-    if( (rc = form_measurement_reply(cs, buffer, &state, &rbuffer) ) ){
-        goto eexit;
-    }
-
-    if( state == bias_calculated ){
-        orte_process_name_t next = next_orted(cs);
-        if( PROC_NAME_CMP(next, orte_name_invalid) ){
-            cs->state = finalized;
-        }else{
-            cs->state = resp_init;
-        }
-        goto eexit;
-    }
-
-    if (0 > (rc = orte_rml.send_buffer_nb(sender, rbuffer, ORTE_RML_TAG_TIMING_CLOCK_SYNC,
-                                          orte_rml_send_callback, NULL))) {
-        ORTE_ERROR_LOG(rc);
-        goto eexit;
-    }
-
-    CLKSYNC_OUTPUT( ("reply to measurement request from %s", ORTE_NAME_PRINT(sender)) );
-eexit:
-    if( rbuffer )
-        OBJ_RELEASE(rbuffer);
     return rc;
 }
 
@@ -1190,11 +1154,13 @@ static int sock_measure_bias(clock_sync_t *cs, opal_pointer_array_t *addrs)
     cs->bias = best_m.bias;
     cs->rtt = best_m.rtt;
 
-    float rtt = cs->rtt;
-    float bias = cs->bias;
-    CLKSYNC_OUTPUT( ( "Result bias is: %.7f[%e] (rtt = %.7f[%e])", bias, bias, rtt, rtt) ); 
+    char rtt_s[256], bias_s[256];
+    sprintf(rtt_s,"%e", cs->rtt);
+    sprintf(bias_s,"%e", cs->bias);
+
+    CLKSYNC_OUTPUT( ( "Result bias is: %s (rtt = %s)", bias_s, rtt_s) );
     FILE *fp = fopen("orted_out","a");
-    fprintf(fp, "%s Result bias is: %e (rtt = %e)\n", ORTE_NAME_PRINT(ORTE_PROC_MY_NAME), bias, rtt);
+    fprintf(fp, "%s %s Result bias is: %e (rtt = %e)\n", orte_process_info.nodename, ORTE_NAME_PRINT(ORTE_PROC_MY_NAME), cs->bias, cs->rtt);
     fclose(fp);
 
 eexit:
@@ -1373,9 +1339,18 @@ int orte_util_clock_sync_hnp_init(opal_buffer_t *relay, delivery_fn fn)
     cs->fn = fn;
     cs->relay = relay;
 
-//    debug_hang(1);
+    debug_hang(1);
 
-    switch( clksync_sync_strategy ){
+    switch( orte_timing_sync ){
+    case cs_sock_direct:
+    case cs_sock_tree:
+        if( opal_pointer_array_get_size(cs->childs) ){
+            if( responder_init(cs) ){
+                goto err_exit;
+            }
+        }
+        break;
+/* RML synchronisation to be implemented
     case rml_direct:
     case rml_tree:
         if( opal_pointer_array_get_size(cs->childs) ){
@@ -1388,16 +1363,9 @@ int orte_util_clock_sync_hnp_init(opal_buffer_t *relay, delivery_fn fn)
             goto err_exit;
         }
         break;
-    case sock_direct:
-    case sock_tree:
-        if( opal_pointer_array_get_size(cs->childs) ){
-            if( responder_init(cs) ){
-                goto err_exit;
-            }
-        }
-        break;
+*/
     default:
-        opal_output(0,"BAD sync_strategy VALUE %d!", (int)clksync_sync_strategy);
+        opal_output(0,"BAD sync_strategy VALUE %d!", (int)orte_timing_sync);
         return -1;
     }
 
@@ -1411,7 +1379,7 @@ int orte_util_clock_sync_orted_init(opal_buffer_t *relay, delivery_fn fn)
 {
     clock_sync_t *cs = NULL;
 
-//    debug_hang(1);
+    debug_hang(1);
 
     int rc = orted_init_state(&cs);
     if( rc ){
@@ -1420,8 +1388,13 @@ int orte_util_clock_sync_orted_init(opal_buffer_t *relay, delivery_fn fn)
     cs->fn = fn;
     cs->relay = relay;
 
-    switch( clksync_sync_strategy ){
-    case rml_direct:
+    switch( orte_timing_sync ){
+    case cs_sock_direct:
+    case cs_sock_tree:
+        orte_rml.recv_buffer_nb(ORTE_NAME_WILDCARD, ORTE_RML_TAG_TIMING_CLOCK_SYNC,
+                                0, sock_callback, cs);
+        break;
+/* RML sync to be implemented
     case rml_tree:
         if( opal_pointer_array_get_size(cs->childs) ){
             orte_rml.recv_buffer_nb(ORTE_NAME_WILDCARD, ORTE_RML_TAG_TIMING_CLOCK_SYNC,
@@ -1430,14 +1403,10 @@ int orte_util_clock_sync_orted_init(opal_buffer_t *relay, delivery_fn fn)
             goto err_exit;
         }
         break;
-    case sock_direct:
-    case sock_tree:
-        orte_rml.recv_buffer_nb(ORTE_NAME_WILDCARD, ORTE_RML_TAG_TIMING_CLOCK_SYNC,
-                                0, sock_callback, cs);
-        break;
+*/
     default:
-        opal_output(0,"BAD sync_strategy VALUE %d!", (int)clksync_sync_strategy);
-        return -1;
+        opal_output(0,"BAD sync_strategy VALUE %d!", (int)orte_timing_sync);
+        goto err_exit;
     }
 
     CLKSYNC_OUTPUT( ("callback is installed") );
@@ -1447,3 +1416,151 @@ err_exit:
     free(cs);
     return -1;
 }
+
+// -------------------- RML routines ------------------------------------------
+/*
+static void rml_callback(int status, orte_process_name_t* sender,
+                         opal_buffer_t *buffer, orte_rml_tag_t tag,
+                         void* cbdata)
+{
+    clock_sync_t *cs = cbdata;
+
+    switch(cs->state){
+    case init:
+        requester_init(cs, buffer);
+        cs->state = req_measure;
+        if( rml_request(cs) ){
+            cs->state = finalized;
+        }
+        break;
+    case req_measure:
+        if( rml_process(cs, sender, buffer) ){
+            cs->state = finalized;
+        }
+        break;
+    case resp_serve:
+        rml_respond(cs, sender, buffer);
+        break;
+    case resp_init:
+        break;
+    default:
+        CLKSYNC_OUTPUT( ("This state is not allowed here: %s", state_to_str(cs->state)) );
+        break;
+    }
+
+
+    switch(cs->state){
+    case req_measure:
+        if( rml_request(cs) ){
+            cs->state = finalized;
+        }
+        break;
+    case resp_init:
+        responder_activate(cs);
+        cs->state = resp_serve;
+        break;
+    case finalized:
+        cs->fn(cs->relay);
+        orte_rml.recv_cancel(ORTE_NAME_WILDCARD, ORTE_RML_TAG_TIMING_CLOCK_SYNC);
+        double bias;
+        if( calculate_bias(cs, &bias) ){
+            CLKSYNC_OUTPUT( ("cannot calculate bias\n") );
+            bias = 0;
+            return;
+        }
+        CLKSYNC_OUTPUT( ("result bias = %15.15lf\n",bias) );
+        break;
+    default:
+        CLKSYNC_OUTPUT( ("This state is not allowed here: %s", state_to_str(cs->state)) );
+        break;
+    }
+
+    CLKSYNC_OUTPUT( ("callback is called, final state = %s\n", state_to_str(cs->state)) );
+}
+
+static int rml_request(clock_sync_t *cs)
+{
+    int rc;
+    opal_buffer_t *buffer = NULL;
+    if( (rc = form_measurement_request(cs, &buffer) ) ){
+        return rc;
+    }
+
+    if (0 > (rc = orte_rml.send_buffer_nb(&cs->parent, buffer, ORTE_RML_TAG_TIMING_CLOCK_SYNC,
+                                          orte_rml_send_callback, NULL))) {
+        ORTE_ERROR_LOG(rc);
+        OBJ_RELEASE(buffer);
+        return rc;
+    }
+    cs->snd_count++;
+
+    CLKSYNC_OUTPUT( ("send measurement request to %s", ORTE_NAME_PRINT(&cs->parent)) );
+    return 0;
+}
+
+
+static int rml_process(clock_sync_t *cs, orte_process_name_t* sender, opal_buffer_t *buffer)
+{
+    int rc;
+
+    CLKSYNC_OUTPUT( ("process %s reply", ORTE_NAME_PRINT(sender)) );
+
+    measurement_t *result = malloc( sizeof(*result) );
+    if( ( rc = extract_measurement_reply(cs, buffer, result) ) ){
+        return rc;
+    }
+
+    if( ( rc = opal_pointer_array_add(cs->results, result ) ) < 0 ){
+        OPAL_ERROR_LOG(rc);
+        return ORTE_ERROR;
+    }
+    rc = 0;
+
+    if( cs->snd_count >= MAX_COUNT ){
+        if( opal_pointer_array_get_size(cs->childs) ){
+            cs->state = resp_serve;
+        }else{
+            cs->state = finalized;
+        }
+    }
+
+    return 0;
+}
+
+static int rml_respond(clock_sync_t *cs,
+                       orte_process_name_t* sender,
+                       opal_buffer_t *buffer)
+{
+    int rc = 0;
+    measure_status_t state;
+    opal_buffer_t *rbuffer = NULL;
+
+    CLKSYNC_OUTPUT( ("called by %s", ORTE_NAME_PRINT(sender)) );
+
+    if( (rc = form_measurement_reply(cs, buffer, &state, &rbuffer) ) ){
+        goto eexit;
+    }
+
+    if( state == bias_calculated ){
+        orte_process_name_t next = next_orted(cs);
+        if( PROC_NAME_CMP(next, orte_name_invalid) ){
+            cs->state = finalized;
+        }else{
+            cs->state = resp_init;
+        }
+        goto eexit;
+    }
+
+    if (0 > (rc = orte_rml.send_buffer_nb(sender, rbuffer, ORTE_RML_TAG_TIMING_CLOCK_SYNC,
+                                          orte_rml_send_callback, NULL))) {
+        ORTE_ERROR_LOG(rc);
+        goto eexit;
+    }
+
+    CLKSYNC_OUTPUT( ("reply to measurement request from %s", ORTE_NAME_PRINT(sender)) );
+eexit:
+    if( rbuffer )
+        OBJ_RELEASE(rbuffer);
+    return rc;
+}
+*/

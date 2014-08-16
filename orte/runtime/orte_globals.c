@@ -63,8 +63,7 @@ int orte_clean_output = -1;
 
 // New timing framework
 bool orte_timing = false;
-int orte_timing_sync_int = 0;
-orte_util_sync_strategy_t orte_timing_sync = clksync_no;
+orte_util_sync_strategy_t orte_timing_sync;
 
 FILE *orte_timing_output = NULL;
 bool orte_timing_details;
