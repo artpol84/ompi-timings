@@ -1152,7 +1152,7 @@ static int sock_measure_bias(clock_sync_t *cs, opal_pointer_array_t *addrs)
         freeaddrinfo(result);
         result = NULL;
     }
-    cs->bias = best_m.bias;
+    cs->bias = best_m.bias + cs->par_bias;
     cs->rtt = best_m.rtt;
 
     char rtt_s[256], bias_s[256];
