@@ -950,6 +950,7 @@ static int orted_init_state(clock_sync_t **cs)
     case cs_sock_tree:
     case cs_rml_tree:
         rc = daemon_init_tree(*cs);
+        break;
     default:
         rc = ORTE_ERROR;
         break;
@@ -1379,7 +1380,7 @@ int orte_util_clock_sync_orted_init(opal_buffer_t *relay, delivery_fn fn)
 {
     clock_sync_t *cs = NULL;
 
-    debug_hang(1);
+//    debug_hang(1);
 
     int rc = orted_init_state(&cs);
     if( rc ){
