@@ -68,27 +68,25 @@ static void debug_hang(int val)
     }
 }
 
-inline static void _clksync_output(char *fmt, ... )
+inline static char * _clksync_string(char *fmt, ... )
 {
-    char *pref = "%s %s [%s]: ";
-    char *suf = "\n";
     va_list args;
     va_start( args, fmt );
-    int size = strlen(fmt);
-    size += strlen(pref) + strlen(suf) + strlen(orte_process_info.nodename) + 10;
-    char *tbuf = malloc( sizeof(char) * size);
-
-    if( tbuf ){
-        snprintf(tbuf, size, "%s%s%s", pref, fmt, suf);
-        opal_output(0, tbuf, orte_process_info.nodename, ORTE_NAME_PRINT(ORTE_PROC_MY_NAME), __FUNCTION__, args );
-        free(tbuf);
-    }else{
-        opal_output(0, "%s [%s]: Cannot allocate memory!\n", ORTE_NAME_PRINT(ORTE_PROC_MY_NAME), __FUNCTION__ );
-    }
+    char *str;
+    asprintf(&str, fmt, args);
     va_end( args );
+    return str;
 }
 
-#define CLKSYNC_OUTPUT( x ) _clksync_output x
+#define CLKSYNC_OUTPUT( x ) { \
+    char *str = _clksync_string x ; \
+    if( str != NULL ){ \
+        opal_output(0, "%s:%s:%s:%d %s", orte_process_info.nodename, \
+                ORTE_NAME_PRINT(ORTE_PROC_MY_NAME), __FUNCTION__, __LINE__, str ); \
+        free(str); \
+    } \
+}
+
 
 #define PROC_NAME_CMP(p1, p2) ( p1.jobid == p2.jobid && p1.vpid == p2.vpid )
 
@@ -144,7 +142,7 @@ static int form_measurement_request(clock_sync_t *cs, opal_buffer_t **o_buffer);
 static int form_measurement_reply(clock_sync_t *cs, opal_buffer_t *buffer,
                                   measure_status_t *state, opal_buffer_t **o_rbuffer );
 static int extract_measurement_reply(clock_sync_t *cs, opal_buffer_t *buffer, measurement_t *result);
-static int calculate_bias(clock_sync_t *cs, double *bias);
+// TODO: remove static int calculate_bias(clock_sync_t *cs, double *bias);
 static int read_opal_buffer(clock_sync_t *cs, int fd, opal_buffer_t *buffer);
 
 // State machine
@@ -422,10 +420,12 @@ static int extract_measurement_reply(clock_sync_t *cs, opal_buffer_t *buffer, me
     measurement_t mes = { rtt, bias };
     *result = mes;
 
-    char rtt_s[256], bias_s[256];
-    sprintf(rtt_s,"%e", rtt);
-    sprintf(bias_s, "%e", bias);
+    char *rtt_s, *bias_s;
+    asprintf(&rtt_s,"%e", rtt);
+    asprintf(&bias_s, "%e", bias);
     CLKSYNC_OUTPUT( ("rtt = %s, bias = %s", rtt_s, bias_s) );
+    free(rtt_s);
+    free(bias_s);
 
     return 0;
 }
@@ -1156,9 +1156,11 @@ static int sock_measure_bias(clock_sync_t *cs, opal_pointer_array_t *addrs)
     orte_timing_bias = cs->bias;
     orte_timing_rtt = best_m.rtt;
 
-    char rtt_s[256], bias_s[256];
-    sprintf(rtt_s,"%e", orte_timing_rtt);
-    sprintf(bias_s,"%e", orte_timing_bias);
+    char *rtt_s, *bias_s;
+    asprintf(&rtt_s,"%e", orte_timing_rtt);
+    asprintf(&bias_s,"%e", orte_timing_bias);
+    free(rtt_s);
+    free(bias_s);
 
     CLKSYNC_OUTPUT( ( "Result bias is: %s (rtt = %s)", bias_s, rtt_s) );
     FILE *fp = fopen("orted_out","a");
