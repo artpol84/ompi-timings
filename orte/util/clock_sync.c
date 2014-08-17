@@ -1154,7 +1154,7 @@ static int sock_measure_bias(clock_sync_t *cs, opal_pointer_array_t *addrs)
                     char *buf = addrinfo2string(rp);
                     CLKSYNC_OUTPUT( ( "Cannot communicate with %s", buf) );
                     free(buf);
-                    close(fd);
+                    close(fd[i]);
                     rc = ORTE_ERROR;
                     goto eexit;
                 }
