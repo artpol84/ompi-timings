@@ -1082,7 +1082,7 @@ eexit1:
 static int sock_measure_bias(clock_sync_t *cs, opal_pointer_array_t *addrs)
 {
     int rc = 0;
-
+    struct addrinfo *result = NULL;
     // Prepare timeout
     struct timeval  timeout;
     timeout.tv_sec = clksync_timeout / 1000000;
@@ -1108,7 +1108,7 @@ static int sock_measure_bias(clock_sync_t *cs, opal_pointer_array_t *addrs)
         hints.ai_flags = 0;
         hints.ai_protocol = 0;          /* Any protocol */
 
-        struct addrinfo *result, *rp;
+        struct addrinfo *rp;
         int s;
         if( ( s = getaddrinfo(host, service, &hints, &result) ) ) {
             CLKSYNC_OUTPUT( ( "getaddrinfo: %s", gai_strerror(s) ) );
