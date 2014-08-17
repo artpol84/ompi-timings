@@ -1081,7 +1081,6 @@ eexit1:
 
 static int sock_measure_bias(clock_sync_t *cs, opal_pointer_array_t *addrs)
 {
-    struct addrinfo *result, *rp;
     int rc = 0;
 
     // Prepare timeout
@@ -1095,10 +1094,8 @@ static int sock_measure_bias(clock_sync_t *cs, opal_pointer_array_t *addrs)
     snprintf(service, max_port_len, "%hu", cs->par_port);
 
     // Analyse each peer's address choose the one with best RTT
-    struct addrinfo best_addr;
     double best_rtt = -1;
     measurement_t best_m;
-    memset(&best_addr, 0, sizeof(best_addr));
     unsigned int i = 0;
     size_t asize = opal_pointer_array_get_size(addrs);
     for( i = 0; i < asize; i++){
@@ -1111,24 +1108,49 @@ static int sock_measure_bias(clock_sync_t *cs, opal_pointer_array_t *addrs)
         hints.ai_flags = 0;
         hints.ai_protocol = 0;          /* Any protocol */
 
+        struct addrinfo *result, *rp;
         int s;
         if( ( s = getaddrinfo(host, service, &hints, &result) ) ) {
             CLKSYNC_OUTPUT( ( "getaddrinfo: %s", gai_strerror(s) ) );
             continue;
         }
 
+        int size = 0;
         for (rp = result; rp != NULL; rp = rp->ai_next) {
-            int fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
-            if ( fd < 0 ){
+            size++;
+        }
+
+        int i, fd[size], final_idx = -1;
+        for( i=0; i<size; i++){
+            fd[i] = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+            if ( fd[i] < 0 ){
                 CLKSYNC_OUTPUT( ( "Cannot create socket: %s", strerror(errno) ) );
                 rc = ORTE_ERROR;
                 goto eexit;
             }
 
-            if ( connect_nb(fd, rp->ai_addr, rp->ai_addrlen, timeout) == 0){
+            if ( connect_nb(fd[i], rp->ai_addr, rp->ai_addrlen, timeout) != 0){
+                char *buf = addrinfo2string(rp);
+                CLKSYNC_OUTPUT( ( "Cannot connect to %s", buf) );
+                free(buf);
+                close(fd[i]);
+                fd[i] = -1;
+            }else{
+                final_idx = i;
+            }
+        }
+        freeaddrinfo(result);
+        result = NULL;
+
+        if( final_idx < 0 ){
+            goto eexit;
+        }
+
+        for( i=0; i<size; i++){
+            if( fd[i] >= 0 ){
                 measurement_t tm;
-                bool final = (i == asize-1) && (rp->ai_next == NULL);
-                if( sock_estimate_addr(cs, fd, &tm, final) ){
+                bool finalize = (i == final_idx);
+                if( sock_estimate_addr(cs, fd[i], &tm, finalize) ){
                     char *buf = addrinfo2string(rp);
                     CLKSYNC_OUTPUT( ( "Cannot communicate with %s", buf) );
                     free(buf);
@@ -1141,15 +1163,9 @@ static int sock_measure_bias(clock_sync_t *cs, opal_pointer_array_t *addrs)
                     best_rtt = rtt;
                     best_m = tm;
                 }
-            }else{
-                char *buf = addrinfo2string(rp);
-                CLKSYNC_OUTPUT( ( "Cannot connect to %s", buf) );
-                free(buf);
             }
-            close(fd);
+            close(fd[i]);
         }
-        freeaddrinfo(result);
-        result = NULL;
     }
 
     cs->bias = best_m.bias + cs->par_bias;
@@ -1159,10 +1175,10 @@ static int sock_measure_bias(clock_sync_t *cs, opal_pointer_array_t *addrs)
     char *rtt_s, *bias_s;
     asprintf(&rtt_s,"%e", orte_timing_rtt);
     asprintf(&bias_s,"%e", orte_timing_bias);
+    CLKSYNC_OUTPUT( ( "Result bias is: %s (rtt = %s)", bias_s, rtt_s) );
     free(rtt_s);
     free(bias_s);
 
-    CLKSYNC_OUTPUT( ( "Result bias is: %s (rtt = %s)", bias_s, rtt_s) );
     FILE *fp = fopen("orted_out","a");
     fprintf(fp, "%s %s Result bias is: %e (rtt = %e)\n", orte_process_info.nodename,
             ORTE_NAME_PRINT(ORTE_PROC_MY_NAME), orte_timing_bias, orte_timing_rtt);
@@ -1308,6 +1324,7 @@ static void sock_respond(int fd, short flags, void* cbdata)
     }
 
     if( state == bias_calculated ){
+
         orte_process_name_t next = next_orted(cs);
         if( PROC_NAME_CMP(next, orte_name_invalid) ){
             cs->state = finalized;
