@@ -52,6 +52,7 @@
 #include "orte/util/proc_info.h"
 #include "orte/util/name_fns.h"
 #include "orte/util/error_strings.h"
+#include "orte/util/clock_sync.h"
 #include "orte/runtime/runtime.h"
 #include "orte/runtime/orte_wait.h"
 
@@ -439,8 +440,9 @@ ORTE_DECLSPEC orte_vpid_t orte_get_lowest_vpid_alive(orte_jobid_t job);
 
 /* global variables used by RTE - instanced in orte_globals.c */
 ORTE_DECLSPEC extern bool orte_timing;
-typedef enum { cs_no = 0, cs_sock_direct, cs_sock_tree, cs_rml_direct, cs_rml_tree, cs_max } orte_util_sync_strategy_t;
 ORTE_DECLSPEC extern orte_util_sync_strategy_t orte_timing_sync;
+ORTE_DECLSPEC extern double orte_timing_bias;
+ORTE_DECLSPEC extern double orte_timing_rtt;
 
 ORTE_DECLSPEC extern FILE *orte_timing_output;
 ORTE_DECLSPEC extern bool orte_timing_details;

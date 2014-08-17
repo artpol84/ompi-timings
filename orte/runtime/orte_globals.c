@@ -43,6 +43,7 @@
 #include "orte/mca/rml/rml.h"
 #include "orte/util/proc_info.h"
 #include "orte/util/name_fns.h"
+#include "orte/util/clock_sync.h"
 
 #include "orte/runtime/runtime.h"
 #include "orte/runtime/runtime_internals.h"
@@ -64,6 +65,8 @@ int orte_clean_output = -1;
 // New timing framework
 bool orte_timing = false;
 orte_util_sync_strategy_t orte_timing_sync;
+double orte_timing_bias;
+double orte_timing_rtt;
 
 FILE *orte_timing_output = NULL;
 bool orte_timing_details;
