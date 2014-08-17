@@ -333,7 +333,7 @@ static int form_measurement_request(clock_sync_t *cs, opal_buffer_t **o_buffer)
     int rc;
 
     if( buffer == NULL ){
-        rc = ORTE_ERR_MEM_LIMIT_EXCEEDED;
+        rc = ORTE_ERR_OUT_OF_RESOURCE;
         goto eexit;
     }
 
@@ -377,7 +377,7 @@ static int form_measurement_reply(clock_sync_t *cs, opal_buffer_t *buffer,
     rbuffer = OBJ_NEW(opal_buffer_t);
 
     if( rbuffer == NULL ){
-        rc = ORTE_ERR_MEM_LIMIT_EXCEEDED;
+        rc = ORTE_ERR_OUT_OF_RESOURCE;
         goto err_exit;
     }
 
@@ -484,7 +484,7 @@ static int read_opal_buffer(clock_sync_t *cs, int fd, opal_buffer_t *buffer)
     char *buf = malloc(cs->maxsize);
 
     if( buf == NULL ){
-        rc = ORTE_ERR_MEM_LIMIT_EXCEEDED;
+        rc = ORTE_ERR_OUT_OF_RESOURCE;
         goto err_exit;
     }
 
@@ -600,7 +600,7 @@ static int responder_init(clock_sync_t *cs)
 
         cs->ev = opal_event_alloc();
         if( cs->ev == NULL ){
-            rc = ORTE_ERR_MEM_LIMIT_EXCEEDED;
+            rc = ORTE_ERR_OUT_OF_RESOURCE;
             ORTE_ERROR_LOG(rc);
             goto eexit;
         }
@@ -640,12 +640,12 @@ static int responder_activate(clock_sync_t *cs)
 
     // Create initiation buffer
     if( NULL == (buffer = OBJ_NEW(opal_buffer_t) ) ){
-        rc = ORTE_ERR_MEM_LIMIT_EXCEEDED;
+        rc = ORTE_ERR_OUT_OF_RESOURCE;
         goto err_exit;
     }
 
     if( NULL == (bias = malloc(sizeof(char) * BIAS_MAX_STR ) ) ){
-        rc = ORTE_ERR_MEM_LIMIT_EXCEEDED;
+        rc = ORTE_ERR_OUT_OF_RESOURCE;
         goto err_exit;
     }
     sprintf(bias, "%15.15lf", cs->bias );
@@ -1061,7 +1061,7 @@ static int sock_parent_addrs(clock_sync_t *cs, opal_pointer_array_t *array)
     for (j=0; NULL != addrs[j]; j++) {
         char *ptr = strdup(addrs[j]);
         if( ptr == NULL ){
-            rc = ORTE_ERR_MEM_LIMIT_EXCEEDED;
+            rc = ORTE_ERR_OUT_OF_RESOURCE;
             goto eexit3;
         }
         if( (rc = opal_pointer_array_add(array, (void*)ptr) ) < 0 ){
@@ -1079,27 +1079,46 @@ eexit1:
     return rc;
 }
 
+struct bias_peer_t{
+    int fd;
+    struct addrinfo *rp;
+};
+
 static int sock_measure_bias(clock_sync_t *cs, opal_pointer_array_t *addrs)
 {
     int rc = 0;
+    // Getaddrinfo output
     struct addrinfo *result = NULL;
-    // Prepare timeout
     struct timeval  timeout;
+    // Live fds list
+    opal_pointer_array_t *fds = OBJ_NEW(opal_pointer_array_t);
+    int final_idx = -1;
+    int max_port_len = 10;
+    char service[max_port_len];
+    double best_rtt = -1;
+    measurement_t best_m;
+    int i = 0;
+    size_t asize = opal_pointer_array_get_size(addrs);
+
+    debug_hang(1);
+
+    if( fds == NULL ){
+        rc = ORTE_ERR_OUT_OF_RESOURCE;
+        goto eexit;
+    }
+
+    // Prepare timeout
     timeout.tv_sec = clksync_timeout / 1000000;
     timeout.tv_usec = clksync_timeout % 1000000;
 
     // Prepare service
-    int max_port_len = 10;
-    char service[max_port_len];
     snprintf(service, max_port_len, "%hu", cs->par_port);
 
-    // Analyse each peer's address choose the one with best RTT
-    double best_rtt = -1;
-    measurement_t best_m;
-    unsigned int i = 0;
-    size_t asize = opal_pointer_array_get_size(addrs);
     for( i = 0; i < asize; i++){
         char *host = (char*)opal_pointer_array_get_item(addrs,i);
+        if( host == NULL ){
+            continue;
+        }
         /* Obtain address(es) matching host/port */
         struct addrinfo hints;
         memset(&hints, 0, sizeof(struct addrinfo));
@@ -1115,57 +1134,61 @@ static int sock_measure_bias(clock_sync_t *cs, opal_pointer_array_t *addrs)
             continue;
         }
 
-        int size = 0;
-        for (rp = result; rp != NULL; rp = rp->ai_next) {
-            size++;
-        }
-
-        int i, fd[size], final_idx = -1;
-        for( i=0; i<size; i++){
-            fd[i] = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
-            if ( fd[i] < 0 ){
+        for( rp = result; rp != NULL; rp = rp->ai_next ){
+            int fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+            if ( fd < 0 ){
                 CLKSYNC_OUTPUT( ( "Cannot create socket: %s", strerror(errno) ) );
                 rc = ORTE_ERROR;
                 goto eexit;
             }
 
-            if ( connect_nb(fd[i], rp->ai_addr, rp->ai_addrlen, timeout) != 0){
+            if ( connect_nb(fd, rp->ai_addr, rp->ai_addrlen, timeout) != 0){
                 char *buf = addrinfo2string(rp);
                 CLKSYNC_OUTPUT( ( "Cannot connect to %s", buf) );
                 free(buf);
-                close(fd[i]);
-                fd[i] = -1;
+                close(fd);
             }else{
-                final_idx = i;
-            }
-        }
-        freeaddrinfo(result);
-        result = NULL;
-
-        if( final_idx < 0 ){
-            goto eexit;
-        }
-
-        for( i=0; i<size; i++){
-            if( fd[i] >= 0 ){
-                measurement_t tm;
-                bool finalize = (i == final_idx);
-                if( sock_estimate_addr(cs, fd[i], &tm, finalize) ){
-                    char *buf = addrinfo2string(rp);
-                    CLKSYNC_OUTPUT( ( "Cannot communicate with %s", buf) );
-                    free(buf);
-                    close(fd[i]);
-                    rc = ORTE_ERROR;
+                struct bias_peer_t *ptr = malloc(sizeof(*ptr));
+                ptr->fd = fd;
+                ptr->rp = rp;
+                final_idx = opal_pointer_array_add(fds,ptr);
+                if( final_idx < 0 ){
+                    rc = final_idx;
                     goto eexit;
                 }
-                double rtt = tm.rtt;
-                if( rtt >= 0 && (rtt < best_rtt || best_rtt == -1) ){
-                    best_rtt = rtt;
-                    best_m = tm;
-                }
             }
-            close(fd[i]);
         }
+
+    }
+
+    if( final_idx < 0 ){
+        rc = OPAL_ERROR;
+        goto eexit;
+    }
+
+    asize = opal_pointer_array_get_size(fds);
+
+    for( i=0; i <= final_idx ; i++){
+        struct bias_peer_t *ptr = (struct bias_peer_t *)opal_pointer_array_get_item(fds,i);
+        if( ptr == NULL )
+            continue;
+        int fd = ptr->fd;
+        measurement_t tm;
+        bool finalize = (i == final_idx);
+        if( sock_estimate_addr(cs, fd, &tm, finalize) ){
+            char *buf = addrinfo2string(ptr->rp);
+            CLKSYNC_OUTPUT( ( "Cannot communicate with %s", buf) );
+            free(buf);
+            close(fd);
+            rc = ORTE_ERROR;
+            goto eexit;
+        }
+        double rtt = tm.rtt;
+        if( rtt >= 0 && (rtt < best_rtt || best_rtt == -1) ){
+            best_rtt = rtt;
+            best_m = tm;
+        }
+        close(fd);
     }
 
     cs->bias = best_m.bias + cs->par_bias;
@@ -1185,6 +1208,10 @@ static int sock_measure_bias(clock_sync_t *cs, opal_pointer_array_t *addrs)
     fclose(fp);
 
 eexit:
+
+    if( fds ){
+        OBJ_RELEASE(fds);
+    }
     if( result )
         freeaddrinfo(result);
     return rc;
