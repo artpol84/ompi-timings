@@ -12,20 +12,13 @@
 #define _ORTE_CLOCK_SYNC_H_
 
 #include "orte_config.h"
-
-#include "orte/runtime/orte_globals.h"
 #include "opal/util/output.h"
-#include "orte/util/clock_sync.h"
+#include "opal/dss/dss_types.h"
 
-#include "orte/runtime/orte_globals.h"
-#include "orte/mca/errmgr/errmgr.h"
-#include "orte/mca/rml/rml.h"
-#include "orte/mca/rml/base/rml_contact.h"
-#include "orte/mca/routed/routed.h"
-#include "orte/mca/state/state_types.h"
-#include "orte/mca/state/state.h"
 
 BEGIN_C_DECLS
+
+typedef enum { cs_no = 0, cs_sock_direct, cs_sock_tree, cs_rml_direct, cs_rml_tree, cs_max } orte_util_sync_strategy_t;
 
 typedef int (*delivery_fn)(opal_buffer_t *relay);
 ORTE_DECLSPEC int orte_util_clock_sync_orted_init(opal_buffer_t *relay, delivery_fn fn);

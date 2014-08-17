@@ -647,6 +647,19 @@ static int odls_base_default_setup_fork(orte_app_context_t *context,
     opal_setenv("OMPI_MCA_db", "^pmi", false, environ_copy);
     opal_setenv("OMPI_MCA_pubsub", "^pmi", false, environ_copy);
 
+    // TODO: Preprocessor protection is needed
+    /* Export information about clock synchronisation (if any) for  */
+    (void) mca_base_var_env_name ("orte_timing_bias", &param);
+    asprintf(&param2, "%lf", orte_timing_bias);
+    opal_setenv(param, param2, true, environ_copy);
+    free(param);
+    free(param2);
+    (void) mca_base_var_env_name ("orte_timing_rtt", &param);
+    asprintf(&param2, "%lf", orte_timing_rtt);
+    opal_setenv(param, param2, true, environ_copy);
+    free(param);
+    free(param2);
+
     return ORTE_SUCCESS;
 }
 

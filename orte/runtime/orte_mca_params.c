@@ -38,10 +38,12 @@
 #include "opal/util/argv.h"
 
 #include "orte/util/proc_info.h"
+#include "orte/util/clock_sync.h"
 #include "orte/mca/errmgr/errmgr.h"
 
 #include "orte/runtime/runtime.h"
 #include "orte/runtime/orte_globals.h"
+
 
 static bool passed_thru = false;
 static int orte_progress_thread_debug_level = -1;

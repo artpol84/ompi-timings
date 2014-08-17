@@ -105,7 +105,6 @@ typedef struct {
     orte_process_name_t parent;
     int cur_daemon;
     double bias, par_bias;
-    double rtt;
     measure_status_t req_state;
     uint32_t snd_count;
     opal_pointer_array_t *childs;
@@ -766,7 +765,7 @@ static int hnp_init_base(clock_sync_t *cs)
     memset(cs, 0, sizeof(*cs));
     cs->is_hnp = true;
     cs->state = resp_init;
-    cs->bias = 0;
+    cs->bias = orte_timing_bias =  orte_timing_rtt = 0;
     cs->par_bias = 0;
     cs->cur_daemon = 0;
     cs->childs = OBJ_NEW(opal_pointer_array_t);
@@ -1152,16 +1151,19 @@ static int sock_measure_bias(clock_sync_t *cs, opal_pointer_array_t *addrs)
         freeaddrinfo(result);
         result = NULL;
     }
+
     cs->bias = best_m.bias + cs->par_bias;
-    cs->rtt = best_m.rtt;
+    orte_timing_bias = cs->bias;
+    orte_timing_rtt = best_m.rtt;
 
     char rtt_s[256], bias_s[256];
-    sprintf(rtt_s,"%e", cs->rtt);
-    sprintf(bias_s,"%e", cs->bias);
+    sprintf(rtt_s,"%e", orte_timing_rtt);
+    sprintf(bias_s,"%e", orte_timing_bias);
 
     CLKSYNC_OUTPUT( ( "Result bias is: %s (rtt = %s)", bias_s, rtt_s) );
     FILE *fp = fopen("orted_out","a");
-    fprintf(fp, "%s %s Result bias is: %e (rtt = %e)\n", orte_process_info.nodename, ORTE_NAME_PRINT(ORTE_PROC_MY_NAME), cs->bias, cs->rtt);
+    fprintf(fp, "%s %s Result bias is: %e (rtt = %e)\n", orte_process_info.nodename,
+            ORTE_NAME_PRINT(ORTE_PROC_MY_NAME), orte_timing_bias, orte_timing_rtt);
     fclose(fp);
 
 eexit:
