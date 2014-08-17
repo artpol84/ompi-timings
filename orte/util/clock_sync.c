@@ -73,7 +73,7 @@ inline static char * _clksync_string(char *fmt, ... )
     va_list args;
     va_start( args, fmt );
     char *str;
-    asprintf(&str, fmt, args);
+    vasprintf(&str, fmt, args);
     va_end( args );
     return str;
 }
