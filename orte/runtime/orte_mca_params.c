@@ -344,6 +344,7 @@ int orte_register_params(void)
         orte_timing_sync = cs_no;
     }else{
         orte_timing_sync = (orte_util_sync_strategy_t)orte_timing_sync_int;
+        orte_timing = true;
     }
 
     (void) mca_base_var_register ("orte", "orte", NULL, "timing_bias",
@@ -353,6 +354,7 @@ int orte_register_params(void)
                                   &orte_timing_bias_str);
     if( strlen( orte_timing_bias_str ) != 0 ){
         sscanf(orte_timing_bias_str, "%lf", &orte_timing_bias );
+        orte_timing = true;
     }
 
     (void) mca_base_var_register ("orte", "orte", NULL, "timing_rtt",
@@ -362,6 +364,7 @@ int orte_register_params(void)
                                   &orte_timing_rtt_str);
     if( strlen( orte_timing_rtt_str ) != 0 ){
         sscanf(orte_timing_rtt_str, "%lf", &orte_timing_rtt );
+        orte_timing = true;
     }
 
     // TODO: REMOVE!!
