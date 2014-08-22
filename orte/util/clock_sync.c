@@ -1387,7 +1387,7 @@ int orte_util_clock_sync_hnp_init(opal_buffer_t *relay, delivery_fn fn)
     cs->fn = fn;
     cs->relay = relay;
 
-    debug_hang(1);
+    //debug_hang(1);
 
     switch( orte_timing_sync ){
     case cs_sock_direct:
