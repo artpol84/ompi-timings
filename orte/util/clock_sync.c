@@ -231,7 +231,6 @@ static int create_listen_sock(int *ofd, unsigned short *oport)
         return -1;
     }
 
-
     if( listen(fd, 16) < 0 ){
         // TODO: error handling
         return ORTE_ERROR;
@@ -1100,7 +1099,7 @@ static int sock_measure_bias(clock_sync_t *cs, opal_pointer_array_t *addrs)
     int i = 0;
     size_t asize = opal_pointer_array_get_size(addrs);
 
-    debug_hang(1);
+    //debug_hang(1);
 
     if( fds == NULL ){
         rc = ORTE_ERR_OUT_OF_RESOURCE;
