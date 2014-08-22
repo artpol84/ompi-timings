@@ -348,7 +348,7 @@ int orte_register_params(void)
 
     (void) mca_base_var_register ("orte", "orte", NULL, "timing_bias",
                                   "Force orted's to sync timers: (0 - no [default], 1 - direct with HNP, 2 - according to routed structure)",
-                                  MCA_BASE_VAR_TYPE_INT, NULL, 0, 0,
+                                  MCA_BASE_VAR_TYPE_STRING, NULL, 0, 0,
                                   OPAL_INFO_LVL_9, MCA_BASE_VAR_SCOPE_READONLY,
                                   &orte_timing_bias_str);
     if( strlen( orte_timing_bias_str ) != 0 ){
@@ -357,7 +357,7 @@ int orte_register_params(void)
 
     (void) mca_base_var_register ("orte", "orte", NULL, "timing_rtt",
                                   "Force orted's to sync timers: (0 - no [default], 1 - direct with HNP, 2 - according to routed structure)",
-                                  MCA_BASE_VAR_TYPE_INT, NULL, 0, 0,
+                                  MCA_BASE_VAR_TYPE_STRING, NULL, 0, 0,
                                   OPAL_INFO_LVL_9, MCA_BASE_VAR_SCOPE_READONLY,
                                   &orte_timing_rtt_str);
     if( strlen( orte_timing_rtt_str ) != 0 ){
