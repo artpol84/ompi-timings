@@ -445,7 +445,6 @@ ORTE_DECLSPEC extern double orte_timing_bias;
 ORTE_DECLSPEC extern double orte_timing_rtt;
 
 ORTE_DECLSPEC extern FILE *orte_timing_output;
-ORTE_DECLSPEC extern bool orte_timing_details;
 ORTE_DECLSPEC extern bool orte_debug_daemons_flag;
 ORTE_DECLSPEC extern bool orte_debug_daemons_file_flag;
 ORTE_DECLSPEC extern bool orte_leave_session_attached;

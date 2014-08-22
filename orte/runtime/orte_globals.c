@@ -64,12 +64,11 @@ int orte_clean_output = -1;
 
 // New timing framework
 bool orte_timing = false;
-orte_util_sync_strategy_t orte_timing_sync;
-double orte_timing_bias;
-double orte_timing_rtt;
-
+orte_util_sync_strategy_t orte_timing_sync = cs_no;
+double orte_timing_bias = 0.0;
+double orte_timing_rtt = 0.0;
 FILE *orte_timing_output = NULL;
-bool orte_timing_details;
+
 bool orte_debug_daemons_file_flag = false;
 bool orte_leave_session_attached;
 bool orte_do_not_launch = false;

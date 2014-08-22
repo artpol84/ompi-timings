@@ -54,6 +54,10 @@ static char *orte_tmpdir_base = NULL;
 static char *orte_local_tmpdir_base = NULL;
 static char *orte_remote_tmpdir_base = NULL;
 
+static int orte_timing_sync_int = 0;
+static char *orte_timing_bias_str = "";
+static char *orte_timing_rtt_str = "";
+
 int orte_register_params(void)
 {
     int id;
@@ -323,24 +327,13 @@ int orte_register_params(void)
                                   OPAL_INFO_LVL_9, MCA_BASE_VAR_SCOPE_READONLY,
                                   &orte_startup_timeout);
  
-    /* check for timing requests */
-    orte_timing_details = false;
-    (void) mca_base_var_register ("orte", "orte", NULL, "timing_details",
-                                  "Request that detailed timing data by reported",
-                                  MCA_BASE_VAR_TYPE_BOOL, NULL, 0, 0,
-                                  OPAL_INFO_LVL_9, MCA_BASE_VAR_SCOPE_READONLY,
-                                  &orte_timing_details);
-
-    /* ensure the timing flag is set too */
-    orte_timing = orte_timing_details;
-
     (void) mca_base_var_register ("orte", "orte", NULL, "timing",
                                   "Enable orte timing framework",
                                   MCA_BASE_VAR_TYPE_BOOL, NULL, 0, 0,
                                   OPAL_INFO_LVL_9, MCA_BASE_VAR_SCOPE_READONLY,
                                   &orte_timing);
 
-    static int orte_timing_sync_int = 0;
+
     (void) mca_base_var_register ("orte", "orte", NULL, "timing_sync",
                                   "Force orted's to sync timers: (0 - no [default], 1 - direct with HNP, 2 - according to routed structure)",
                                   MCA_BASE_VAR_TYPE_INT, NULL, 0, 0,
@@ -352,32 +345,50 @@ int orte_register_params(void)
     }else{
         orte_timing_sync = (orte_util_sync_strategy_t)orte_timing_sync_int;
     }
-    // TODO: REMOVE!!
-    opal_output(0,"Clock sync type is %d", (int)orte_timing_sync);
-    
-    if (ORTE_PROC_IS_HNP) {
-        orte_timing_file = NULL;
-        (void) mca_base_var_register ("orte", "orte", NULL, "timing_file",
-                                      "Name of the file where timing data is to be written (relative or absolute path)",
-                                      MCA_BASE_VAR_TYPE_STRING, NULL, 0, 0,
-                                      OPAL_INFO_LVL_9, MCA_BASE_VAR_SCOPE_READONLY,
-                                      &orte_timing_file);
-        if (orte_timing && NULL == orte_timing_file) {
-            /* send the timing output to stdout */
-            orte_timing_output = stdout;
-        } else if (NULL != orte_timing_file) {
-            /* make sure the timing flag is set */
-            orte_timing = true;
-            /* send the output to the indicated file */
-            orte_timing_output = fopen(orte_timing_file,  "w");
-            if (NULL == orte_timing_output) {
-                /* couldn't be opened */
-                opal_output(0, "File %s could not be opened", orte_timing_file);
-                orte_timing_output = stderr;
-            }
-        }        
+
+    (void) mca_base_var_register ("orte", "orte", NULL, "timing_bias",
+                                  "Force orted's to sync timers: (0 - no [default], 1 - direct with HNP, 2 - according to routed structure)",
+                                  MCA_BASE_VAR_TYPE_INT, NULL, 0, 0,
+                                  OPAL_INFO_LVL_9, MCA_BASE_VAR_SCOPE_READONLY,
+                                  &orte_timing_bias_str);
+    if( strlen( orte_timing_bias_str ) != 0 ){
+        sscanf(orte_timing_bias_str, "%lf", &orte_timing_bias );
     }
-    
+
+    (void) mca_base_var_register ("orte", "orte", NULL, "timing_rtt",
+                                  "Force orted's to sync timers: (0 - no [default], 1 - direct with HNP, 2 - according to routed structure)",
+                                  MCA_BASE_VAR_TYPE_INT, NULL, 0, 0,
+                                  OPAL_INFO_LVL_9, MCA_BASE_VAR_SCOPE_READONLY,
+                                  &orte_timing_rtt_str);
+    if( strlen( orte_timing_rtt_str ) != 0 ){
+        sscanf(orte_timing_rtt_str, "%lf", &orte_timing_rtt );
+    }
+
+    // TODO: REMOVE!!
+    opal_output(0,"Clock sync type is %d, rtt = %lf, bias = %lf\n",
+                (int)orte_timing_sync, orte_timing_rtt, orte_timing_bias);
+
+    orte_timing_file = NULL;
+    (void) mca_base_var_register ("orte", "orte", NULL, "timing_file",
+                                  "Name of the file where timing data is to be written (relative or absolute path)",
+                                  MCA_BASE_VAR_TYPE_STRING, NULL, 0, 0,
+                                  OPAL_INFO_LVL_9, MCA_BASE_VAR_SCOPE_READONLY,
+                                  &orte_timing_file);
+    if (orte_timing && NULL == orte_timing_file) {
+        /* send the timing output to stdout */
+        orte_timing_output = stdout;
+    } else if (NULL != orte_timing_file) {
+        /* make sure the timing flag is set */
+        orte_timing = true;
+        /* send the output to the indicated file */
+        orte_timing_output = fopen(orte_timing_file,  "w");
+        if (NULL == orte_timing_output) {
+            /* couldn't be opened */
+            opal_output(0, "File %s could not be opened", orte_timing_file);
+            orte_timing_output = stderr;
+        }
+    }
+
     /* User-level debugger info string */
     orte_base_user_debugger = "totalview @mpirun@ -a @mpirun_args@ : ddt -n @np@ -start @executable@ @executable_argv@ @single_app@ : fxp @mpirun@ -a @mpirun_args@";
     (void) mca_base_var_register ("orte", "orte", NULL, "base_user_debugger",
