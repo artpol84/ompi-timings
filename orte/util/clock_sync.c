@@ -106,7 +106,6 @@ typedef struct {
     measure_status_t req_state;
     uint32_t snd_count;
     opal_pointer_array_t *childs;
-    opal_pointer_array_t *results;
 
     // finalize data
     delivery_fn fn;
@@ -590,6 +589,8 @@ static int responder_init(clock_sync_t *cs)
 {
     int rc;
 
+    cs->fd = -1;
+
     switch( orte_timing_sync ){
     case cs_sock_direct:
     case cs_sock_tree:{
@@ -618,8 +619,30 @@ static int responder_init(clock_sync_t *cs)
     return responder_activate(cs);
 
 eexit:
-    close(cs->fd);
+    if( cs->fd >= 0 )
+        close(cs->fd);
     return rc;
+}
+
+static int responder_shutdown(clock_sync_t *cs)
+{
+    switch( orte_timing_sync ){
+    case cs_sock_direct:
+    case cs_sock_tree:{
+        opal_event_del(cs->ev);
+        opal_event_free(cs->ev);
+        if( cs->fd >= 0 ){
+            fclose(cs->fd);
+        }
+        break;
+    }
+    case cs_rml_direct:
+    case cs_rml_tree:
+        break;
+    default:
+        return -1;
+    }
+    return 0;
 }
 
 static int responder_activate(clock_sync_t *cs)
@@ -768,11 +791,10 @@ static int hnp_init_base(clock_sync_t *cs)
     cs->par_bias = 0;
     cs->cur_daemon = 0;
     cs->childs = OBJ_NEW(opal_pointer_array_t);
-    cs->results = OBJ_NEW(opal_pointer_array_t);
     cs->req_state = bias_calculated;
     cs->parent = *ORTE_PROC_MY_NAME;
 
-    if( cs->childs == NULL || cs->results == NULL ){
+    if( cs->childs == NULL ){
         rc = ORTE_ERR_OUT_OF_RESOURCE;
         goto err_exit;
     }
@@ -784,10 +806,7 @@ err_exit:
         free(cs->childs);
         cs->childs = NULL;
     }
-    if( cs->results != NULL ){
-        free(cs->results);
-        cs->results = NULL;
-    }
+
     ORTE_ERROR_LOG(rc);
     return rc;
 }
@@ -822,10 +841,7 @@ err_exit:
         free(cs->childs);
         cs->childs = NULL;
     }
-    if( cs->results != NULL ){
-        free(cs->results);
-        cs->results = NULL;
-    }
+
     if( rc != OPAL_SUCCESS){
         ORTE_ERROR_LOG(rc);
     }
@@ -872,10 +888,7 @@ err_exit:
         free(cs->childs);
         cs->childs = NULL;
     }
-    if( cs->results != NULL ){
-        free(cs->results);
-        cs->results = NULL;
-    }
+
     if( rc != OPAL_SUCCESS){
         ORTE_ERROR_LOG(rc);
     }
@@ -891,11 +904,10 @@ static int orted_init_base(clock_sync_t *cs)
     cs->par_bias = 0;
     cs->cur_daemon = 0;
     cs->childs = OBJ_NEW(opal_pointer_array_t);
-    cs->results = OBJ_NEW(opal_pointer_array_t);
     cs->req_state = bias_in_progress;
     cs->parent = *ORTE_PROC_MY_HNP;
 
-    if( (cs->childs == NULL) || (cs->results == NULL) ){
+    if( cs->childs == NULL ){
         return ORTE_ERR_OUT_OF_RESOURCE;
     }
 
@@ -996,6 +1008,7 @@ static void sock_callback(int status, orte_process_name_t* sender,
     } else {
         cs->state = finalized;
         cs->fn(cs->relay);
+        orte_util_clock_sync_all_release(cs);
     }
 
     CLKSYNC_OUTPUT( ("callback is called, final state = %s\n", state_to_str(cs->state)) );
@@ -1355,6 +1368,7 @@ static void sock_respond(int fd, short flags, void* cbdata)
         if( PROC_NAME_CMP(next, orte_name_invalid) ){
             cs->state = finalized;
             cs->fn(cs->relay);
+            orte_util_clock_sync_all_release(cs);
         }else{
             responder_activate(cs);
         }
@@ -1464,6 +1478,17 @@ err_exit:
     free(cs);
     return -1;
 }
+
+static void orte_util_clock_sync_all_release(clock_sync_t *cs)
+{
+    responder_shutdown(cs);
+    if( !cs->is_hnp ){
+        orte_rml.recv_cancel(ORTE_NAME_WILDCARD, ORTE_RML_TAG_TIMING_CLOCK_SYNC);
+    }
+    OBJ_RELEASE(cs->childs);
+    free(cs);
+}
+
 
 // -------------------- RML routines ------------------------------------------
 /*
