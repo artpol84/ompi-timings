@@ -94,7 +94,7 @@ typedef enum { init, req_measure, resp_init, resp_serve, finalized } clock_sync_
 
 typedef enum { bias_in_progress, bias_next_addr, bias_calculated } measure_status_t;
 
-unsigned int clksync_measure_count = 10;
+unsigned int clksync_measure_count = 100;
 unsigned int clksync_timeout = 10000;
 
 typedef struct {
@@ -417,14 +417,14 @@ static int extract_measurement_reply(clock_sync_t *cs, opal_buffer_t *buffer, me
 
     measurement_t mes = { rtt, bias };
     *result = mes;
-
+/*
     char *rtt_s, *bias_s;
     asprintf(&rtt_s,"%e", rtt);
     asprintf(&bias_s, "%e", bias);
     CLKSYNC_OUTPUT( ("rtt = %s, bias = %s", rtt_s, bias_s) );
     free(rtt_s);
     free(bias_s);
-
+*/
     return 0;
 }
 

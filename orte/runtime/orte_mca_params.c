@@ -367,10 +367,6 @@ int orte_register_params(void)
         orte_timing = true;
     }
 
-    // TODO: REMOVE!!
-    opal_output(0,"Clock sync type is %d, rtt = %lf, bias = %lf\n",
-                (int)orte_timing_sync, orte_timing_rtt, orte_timing_bias);
-
     orte_timing_file = NULL;
     (void) mca_base_var_register ("orte", "orte", NULL, "timing_file",
                                   "Name of the file where timing data is to be written (relative or absolute path)",
