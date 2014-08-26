@@ -33,6 +33,7 @@
 
 #include "opal/util/error.h"
 #include "opal/util/output.h"
+#include "opal/util/timings.h"
 #include "opal/runtime/opal.h"
 #include "opal/threads/threads.h"
 
@@ -149,6 +150,8 @@ int orte_init(int* pargc, char*** pargv, orte_proc_type_t flags)
         error = "orte_ess_init";
         goto error;
     }
+
+    opal_timing_set(orte_process_info.nodename, ORTE_NAME_PRINT(ORTE_PROC_MY_NAME), orte_timing_bias);
     
     /* All done */
     return ORTE_SUCCESS;

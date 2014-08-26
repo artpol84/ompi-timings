@@ -31,6 +31,7 @@
 
 #include "opal/dss/dss.h"
 #include "opal/mca/dstore/dstore.h"
+#include "opal/util/timings.h"
 
 #include "orte/util/proc_info.h"
 #include "orte/util/error_strings.h"
@@ -45,6 +46,8 @@
 #include "orte/mca/grpcomm/grpcomm_types.h"
 #include "orte/mca/grpcomm/grpcomm.h"
 #include "orte/mca/grpcomm/base/base.h"
+
+opal_timing_t timings[ORTE_RML_TAG_MAX];
 
 static bool recv_issued=false;
 static void daemon_local_recv(int status, orte_process_name_t* sender,
@@ -75,25 +78,33 @@ int orte_grpcomm_base_comm_start(void)
                                     ORTE_RML_TAG_COLLECTIVE,
                                     ORTE_RML_PERSISTENT,
                                     daemon_local_recv, NULL);
+            OPAL_TIMING_INIT(&timings[ORTE_RML_TAG_COLLECTIVE]);
+
             orte_rml.recv_buffer_nb(ORTE_NAME_WILDCARD,
                                     ORTE_RML_TAG_XCAST,
                                     ORTE_RML_PERSISTENT,
                                     orte_grpcomm_base_xcast_recv, NULL);
+            OPAL_TIMING_INIT(&timings[ORTE_RML_TAG_XCAST]);
+
             orte_rml.recv_buffer_nb(ORTE_NAME_WILDCARD,
                                     ORTE_RML_TAG_DAEMON_COLL,
                                     ORTE_RML_PERSISTENT,
                                     daemon_coll_recv, NULL);
+            OPAL_TIMING_INIT(&timings[ORTE_RML_TAG_DAEMON_COLL]);
+
             if (ORTE_PROC_IS_DAEMON) {
                 orte_rml.recv_buffer_nb(ORTE_NAME_WILDCARD,
                                         ORTE_RML_TAG_ROLLUP,
                                         ORTE_RML_PERSISTENT,
                                         orte_grpcomm_base_rollup_recv, NULL);
+                OPAL_TIMING_INIT(&timings[ORTE_RML_TAG_ROLLUP]);
             }
             if (ORTE_PROC_IS_HNP) {
                 orte_rml.recv_buffer_nb(ORTE_NAME_WILDCARD,
                                         ORTE_RML_TAG_COLL_ID_REQ,
                                         ORTE_RML_PERSISTENT,
                                         coll_id_req, NULL);
+                OPAL_TIMING_INIT(&timings[ORTE_RML_TAG_COLL_ID_REQ]);
             }
             recv_issued = true;
         } else if (ORTE_PROC_IS_APP) {
@@ -101,10 +112,14 @@ int orte_grpcomm_base_comm_start(void)
                                     ORTE_RML_TAG_COLLECTIVE,
                                     ORTE_RML_PERSISTENT,
                                     app_recv, NULL);
+            OPAL_TIMING_INIT(&timings[ORTE_RML_TAG_COLLECTIVE]);
+
             orte_rml.recv_buffer_nb(ORTE_NAME_WILDCARD,
                                     ORTE_RML_TAG_DIRECT_MODEX,
                                     ORTE_RML_PERSISTENT,
                                     direct_modex, NULL);
+            OPAL_TIMING_INIT(&timings[ORTE_RML_TAG_DIRECT_MODEX]);
+
             recv_issued = true;
         }
     }
@@ -120,13 +135,26 @@ void orte_grpcomm_base_comm_stop(void)
                          ORTE_NAME_PRINT(ORTE_PROC_MY_NAME)));
     if (recv_issued) {
         orte_rml.recv_cancel(ORTE_NAME_WILDCARD, ORTE_RML_TAG_COLLECTIVE);
+        OPAL_TIMING_REPORT_OUT(&timings[ORTE_RML_TAG_COLLECTIVE],"RML_COLL");
+        OPAL_TIMING_RELEASE(&timings[ORTE_RML_TAG_COLLECTIVE]);
+
         if (ORTE_PROC_IS_HNP || ORTE_PROC_IS_DAEMON) {
             orte_rml.recv_cancel(ORTE_NAME_WILDCARD, ORTE_RML_TAG_XCAST);
+            OPAL_TIMING_REPORT_OUT(&timings[ORTE_RML_TAG_XCAST],"RML_XCAST");
+            OPAL_TIMING_RELEASE(&timings[ORTE_RML_TAG_XCAST]);
+
             orte_rml.recv_cancel(ORTE_NAME_WILDCARD, ORTE_RML_TAG_DAEMON_COLL);
+            OPAL_TIMING_REPORT_OUT(&timings[ORTE_RML_TAG_DAEMON_COLL],"RML_COLL");
+            OPAL_TIMING_RELEASE(&timings[ORTE_RML_TAG_DAEMON_COLL]);
         }
         if (ORTE_PROC_IS_HNP) {
             orte_rml.recv_cancel(ORTE_NAME_WILDCARD, ORTE_RML_TAG_COLL_ID_REQ);
+            OPAL_TIMING_REPORT_OUT(&timings[ORTE_RML_TAG_COLL_ID_REQ],"RML_ID_REQ");
+            OPAL_TIMING_RELEASE(&timings[ORTE_RML_TAG_COLL_ID_REQ]);
+
             orte_rml.recv_cancel(ORTE_NAME_WILDCARD, ORTE_RML_TAG_DIRECT_MODEX);
+            OPAL_TIMING_REPORT_OUT(&timings[ORTE_RML_TAG_DIRECT_MODEX],"RML_MODEX");
+            OPAL_TIMING_RELEASE(&timings[ORTE_RML_TAG_DIRECT_MODEX]);
         }
         recv_issued = false;
     }
@@ -216,6 +244,7 @@ static void app_recv(int status, orte_process_name_t* sender,
                                  coll->id));
             
             if (id == coll->id) {
+                OPAL_TIMING_EVENT((&timings[coll->id],"Collective is complete"));
                 /* see if the collective needs another step */
                 if (NULL != coll->next_cb) {
                     /* have to go here next */
@@ -444,6 +473,8 @@ static void daemon_local_recv(int status, orte_process_name_t* sender,
                          "%s COLLECTIVE RECVD FROM %s",
                          ORTE_NAME_PRINT(ORTE_PROC_MY_NAME),
                          ORTE_NAME_PRINT(sender)));
+
+
     
     /* unpack the collective id */
     n = 1;
@@ -451,6 +482,8 @@ static void daemon_local_recv(int status, orte_process_name_t* sender,
         ORTE_ERROR_LOG(rc);
         return;
     }
+
+    OPAL_TIMING_EVENT((&timings[id],"Recv from %s", ORTE_NAME_PRINT(sender)));
 
     OPAL_OUTPUT_VERBOSE((5, orte_grpcomm_base_framework.framework_output,
                          "%s WORKING COLLECTIVE %d",
@@ -565,6 +598,8 @@ void orte_grpcomm_base_progress_collectives(void)
                 ORTE_ERROR_LOG(rc);
                 OBJ_RELEASE(relay);
             }
+
+            OPAL_TIMING_EVENT((&timings[ORTE_RML_TAG_DAEMON_COLL],"Local part ready"));
         }
 
     next_coll:
@@ -593,12 +628,15 @@ static void daemon_coll_recv(int status, orte_process_name_t* sender,
                          ORTE_NAME_PRINT(ORTE_PROC_MY_NAME),
                          ORTE_NAME_PRINT(sender)));
     
+
     /* get the collective id */
     n = 1;
     if (ORTE_SUCCESS != (rc = opal_dss.unpack(data, &id, &n, ORTE_GRPCOMM_COLL_ID_T))) {
         ORTE_ERROR_LOG(rc);
         return;
     }
+
+    OPAL_TIMING_EVENT((&timings[id],"Recv from %s", ORTE_NAME_PRINT(sender)));
 
     OPAL_OUTPUT_VERBOSE((5, orte_grpcomm_base_framework.framework_output,
                          "%s grpcomm:base:daemon_coll: WORKING COLLECTIVE %d",
@@ -695,6 +733,7 @@ static void daemon_coll_recv(int status, orte_process_name_t* sender,
             orte_grpcomm_base_pack_collective(relay, jobid,
                                               coll, ORTE_GRPCOMM_INTERNAL_STG_GLOBAL);
             if (ORTE_VPID_WILDCARD == nm->name.vpid) {
+                OPAL_TIMING_EVENT((&timings[id],"XCAST"));
                 /* this is going to everyone in this job, so use xcast */
                 orte_grpcomm.xcast(nm->name.jobid, relay, ORTE_RML_TAG_DAEMON_COLL);
                 OBJ_RELEASE(relay);
@@ -762,6 +801,7 @@ static void daemon_coll_recv(int status, orte_process_name_t* sender,
          * all daemons for relay
          */
         if (ORTE_VPID_WILDCARD == nm->name.vpid) {
+            OPAL_TIMING_EVENT((&timings[ORTE_RML_TAG_COLLECTIVE],"XCAST"));
             orte_grpcomm.xcast(nm->name.jobid, relay, ORTE_RML_TAG_COLLECTIVE);
             OBJ_RELEASE(relay);
         } else {

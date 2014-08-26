@@ -36,6 +36,7 @@
 #include "opal/mca/installdirs/installdirs.h"
 #include "opal/util/output.h"
 #include "opal/util/argv.h"
+#include "opal/util/timings.h"
 
 #include "orte/util/proc_info.h"
 #include "orte/util/clock_sync.h"
@@ -355,6 +356,7 @@ int orte_register_params(void)
     if( strlen( orte_timing_bias_str ) != 0 ){
         sscanf(orte_timing_bias_str, "%lf", &orte_timing_bias );
         orte_timing = true;
+        opal_timing_set_bias(orte_timing_bias);
     }
 
     (void) mca_base_var_register ("orte", "orte", NULL, "timing_rtt",

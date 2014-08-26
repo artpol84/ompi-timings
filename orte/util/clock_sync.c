@@ -50,6 +50,7 @@
 #include "orte/util/clock_sync.h"
 #include "opal/mca/event/event.h"
 #include "opal/mca/dstore/dstore.h"
+#include "opal/util/timings.h"
 #include "orte/runtime/orte_globals.h"
 #include "orte/mca/errmgr/errmgr.h"
 #include "orte/mca/rml/rml.h"
@@ -177,6 +178,9 @@ static int sock_measure_bias(clock_sync_t *cs, opal_pointer_array_t *addrs);
 static int sock_one_iteration(clock_sync_t *cs, int fd, measurement_t *m);
 static int sock_estimate_addr(clock_sync_t *cs, int fd, measurement_t *m, bool final);
 static void sock_respond(int fd, short flags, void* cbdata);
+
+// General cleanup
+static void orte_util_clock_sync_all_release(clock_sync_t *cs);
 
 //---------------- Utility functions -------------------------
 
@@ -632,7 +636,7 @@ static int responder_shutdown(clock_sync_t *cs)
         opal_event_del(cs->ev);
         opal_event_free(cs->ev);
         if( cs->fd >= 0 ){
-            fclose(cs->fd);
+            close(cs->fd);
         }
         break;
     }
@@ -1205,6 +1209,7 @@ static int sock_measure_bias(clock_sync_t *cs, opal_pointer_array_t *addrs)
 
     cs->bias = best_m.bias + cs->par_bias;
     orte_timing_bias = cs->bias;
+    opal_timing_set_bias(orte_timing_bias);
     orte_timing_rtt = best_m.rtt;
 
     char *rtt_s, *bias_s;
