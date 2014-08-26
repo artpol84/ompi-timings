@@ -40,6 +40,8 @@ void opal_timing_add_step(opal_timing_prep_t p, char *func, char *file, int line
 int opal_timing_report(opal_timing_t *t, const char *prefix, char *fname);
 void opal_timing_release(opal_timing_t *t);
 
+static OBJ_CLASS_INSTANCE(opal_timing_event_t, opal_list_item_t, NULL, NULL);
+
 
 opal_mutex_t tm_lock;
 static char *proc_nodename = NULL;
@@ -151,6 +153,7 @@ void opal_timing_init(opal_timing_t *t)
 opal_timing_prep_t opal_timing_prep_ev(opal_timing_t *t, const char *fmt, ...)
 {
     opal_timing_event_t *ev = opal_timing_event_alloc(t);
+    OBJ_CONSTRUCT(ev, opal_timing_event_t);
     ev->ts = opal_timing_get_ts();
     va_list args;
     va_start( args, fmt );
