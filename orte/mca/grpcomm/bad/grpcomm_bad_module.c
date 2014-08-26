@@ -27,6 +27,7 @@
 
 
 #include "opal/dss/dss.h"
+#include "opal/util/timings.h"
 #include "opal/mca/hwloc/base/base.h"
 
 #include "orte/mca/errmgr/errmgr.h"
@@ -348,6 +349,11 @@ static void process_allgather(int fd, short args, void *cbdata)
                              ORTE_NAME_PRINT(ORTE_PROC_MY_NAME),
                              (int)gather->id));
         /* send to our daemon */
+        opal_timing_t t;
+        OPAL_TIMING_INIT(&t);
+        OPAL_TIMING_EVENT((&t,"Start allgather"));
+        OPAL_TIMING_REPORT_OUT(&t,"RML_COLL");
+
         if (0 > (rc = orte_rml.send_buffer_nb(ORTE_PROC_MY_DAEMON, buf,
                                               ORTE_RML_TAG_COLLECTIVE,
                                               orte_rml_send_callback, NULL))) {
