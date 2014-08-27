@@ -383,12 +383,15 @@ static int read_bytes(mca_oob_tcp_peer_t* peer)
                 OBJ_RELEASE(peer->recv_msg);
                 peer->recv_msg = NULL;
             }
+
+            OPAL_TIMING_EVENT((&tm,"Received %d bytes. Would block",
+                               to_read - peer->recv_msg->rdbytes));
+
             mca_oob_tcp_peer_close(peer);
             //if (NULL != mca_oob_tcp.oob_exception_callback) {
             //   mca_oob_tcp.oob_exception_callback(&peer->peer_name, ORTE_RML_PEER_DISCONNECTED);
             //}
-            OPAL_TIMING_EVENT((&tm,"Received %d bytes. Would block",
-                               to_read - peer->recv_msg->rdbytes));
+
             return ORTE_ERR_WOULD_BLOCK;
         }
         /* we were able to read something, so adjust counters and location */
