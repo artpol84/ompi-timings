@@ -60,6 +60,7 @@
 #include "opal/util/error.h"
 #include "opal/class/opal_hash_table.h"
 #include "opal/mca/event/event.h"
+#include "opal/util/timings.h"
 
 #include "orte/util/name_fns.h"
 #include "orte/runtime/orte_globals.h"
@@ -75,10 +76,14 @@
 #include "orte/mca/oob/tcp/oob_tcp_common.h"
 #include "orte/mca/oob/tcp/oob_tcp_connection.h"
 
+extern opal_timing_t tm;
+
 static int send_bytes(mca_oob_tcp_peer_t* peer)
 {
     mca_oob_tcp_send_t* msg = peer->send_msg;
     int rc;
+
+    OPAL_TIMING_EVENT((&tm,"Send %d bytes", msg->sdbytes));
 
     while (0 < msg->sdbytes) {
         rc = write(peer->sd, msg->sdptr, msg->sdbytes);
@@ -154,6 +159,7 @@ void mca_oob_tcp_send_handler(int sd, short flags, void *cbdata)
         if (NULL != msg) {
             /* if the header hasn't been completely sent, send it */
             if (!msg->hdr_sent) {
+                OPAL_TIMING_EVENT((&tm,"Send header to %s", ORTE_NAME_PRINT(&peer->name)));
                 if (ORTE_SUCCESS == (rc = send_bytes(peer))) {
                     /* header is completely sent */
                     msg->hdr_sent = true;
@@ -201,6 +207,7 @@ void mca_oob_tcp_send_handler(int sd, short flags, void *cbdata)
             }
             /* progress the data transmission */
             if (msg->hdr_sent) {
+                OPAL_TIMING_EVENT((&tm,"Send msg to %s", ORTE_NAME_PRINT(&peer->name)));
                 if (ORTE_SUCCESS == (rc = send_bytes(peer))) {
                     /* this block is complete */
                     if (NULL != msg->data || NULL == msg->msg) {
@@ -313,6 +320,7 @@ void mca_oob_tcp_send_handler(int sd, short flags, void *cbdata)
 static int read_bytes(mca_oob_tcp_peer_t* peer)
 {
     int rc;
+    int to_read = peer->recv_msg->rdbytes;
 
     /* read until all bytes recvd or error */
     while (0 < peer->recv_msg->rdbytes) {
@@ -331,6 +339,8 @@ static int read_bytes(mca_oob_tcp_peer_t* peer)
                  * but let the event lib cycle so other messages
                  * can progress while this socket is busy
                  */
+                OPAL_TIMING_EVENT((&tm,"Received %d bytes. Would block",
+                                   to_read - peer->recv_msg->rdbytes));
                 return ORTE_ERR_WOULD_BLOCK;
             }
             /* we hit an error and cannot progress this message - report
@@ -377,6 +387,8 @@ static int read_bytes(mca_oob_tcp_peer_t* peer)
             //if (NULL != mca_oob_tcp.oob_exception_callback) {
             //   mca_oob_tcp.oob_exception_callback(&peer->peer_name, ORTE_RML_PEER_DISCONNECTED);
             //}
+            OPAL_TIMING_EVENT((&tm,"Received %d bytes. Would block",
+                               to_read - peer->recv_msg->rdbytes));
             return ORTE_ERR_WOULD_BLOCK;
         }
         /* we were able to read something, so adjust counters and location */
@@ -384,6 +396,8 @@ static int read_bytes(mca_oob_tcp_peer_t* peer)
         peer->recv_msg->rdptr += rc;
     }
 
+    OPAL_TIMING_EVENT((&tm,"Received %d bytes",
+                       to_read));
     /* we read the full data block */
     return ORTE_SUCCESS;
 }
@@ -471,6 +485,8 @@ void mca_oob_tcp_recv_handler(int sd, short flags, void *cbdata)
                                 "%s:tcp:recv:handler read hdr",
                                 ORTE_NAME_PRINT(ORTE_PROC_MY_NAME));
             if (ORTE_SUCCESS == (rc = read_bytes(peer))) {
+                OPAL_TIMING_EVENT((&tm,"Header received from %s",
+                                   ORTE_NAME_PRINT(&peer->name)));
                 /* completed reading the header */
                 peer->recv_msg->hdr_recvd = true;
                 /* convert the header */
@@ -513,6 +529,11 @@ void mca_oob_tcp_recv_handler(int sd, short flags, void *cbdata)
              * beginning or somewhere in the message
              */
             if (ORTE_SUCCESS == (rc = read_bytes(peer))) {
+
+                OPAL_TIMING_EVENT((&tm,"Msg received from %s",
+                                   ORTE_NAME_PRINT(&peer->name)));
+
+
                 /* we recvd all of the message */
                 opal_output_verbose(OOB_TCP_DEBUG_CONNECT, orte_oob_base_framework.framework_output,
                                     "%s RECVD COMPLETE MESSAGE FROM %s (ORIGIN %s) OF %d BYTES FOR DEST %s TAG %d",

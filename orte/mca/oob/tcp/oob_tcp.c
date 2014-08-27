@@ -51,6 +51,7 @@
 #include "opal/util/if.h"
 #include "opal/util/net.h"
 #include "opal/util/argv.h"
+#include "opal/util/timings.h"
 #include "opal/class/opal_hash_table.h"
 #include "opal/mca/sec/sec.h"
 
@@ -68,6 +69,8 @@
 #include "orte/mca/oob/tcp/oob_tcp_common.h"
 #include "orte/mca/oob/tcp/oob_tcp_connection.h"
 #include "orte/mca/oob/tcp/oob_tcp_ping.h"
+
+opal_timing_t tm;
 
 static void tcp_init(void);
 static void tcp_fini(void);
@@ -121,6 +124,8 @@ static void tcp_init(void)
     opal_hash_table_init(&mca_oob_tcp_module.peers, 32);
     mca_oob_tcp_module.ev_active = false;
 
+    OPAL_TIMING_INIT(&tm);
+
     if (orte_oob_base.use_module_threads) {
         /* if we are to use independent progress threads at
          * the module level, start it now
@@ -149,6 +154,8 @@ static void tcp_fini(void)
     uint64_t ui64;
     char *nptr;
     mca_oob_tcp_peer_t *peer;
+
+    OPAL_TIMING_REPORT_OUT(&tm,"OOB");
 
     /* cleanup all peers */
     if (OPAL_SUCCESS == opal_hash_table_get_first_key_uint64(&mca_oob_tcp_module.peers, &ui64,
