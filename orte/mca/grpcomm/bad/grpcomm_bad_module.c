@@ -147,6 +147,12 @@ static void process_barrier(int fd, short args, void *cbdata)
 
     OBJ_RELEASE(caddy);
 
+        opal_timing_t t;
+        OPAL_TIMING_INIT(&t);
+        OPAL_TIMING_EVENT((&t,"Start barrier"));
+        OPAL_TIMING_REPORT_OUT(&t,"RML_COLL");
+
+
     /* if we are a singleton and routing isn't enabled,
      * then we have nobody with which to communicate, so
      * we can just declare success
@@ -335,6 +341,13 @@ static void process_allgather(int fd, short args, void *cbdata)
      * collective system as the daemons won't know anything about
      * this collective
      */
+
+        opal_timing_t t;
+        OPAL_TIMING_INIT(&t);
+        OPAL_TIMING_EVENT((&t,"Start allgather"));
+        OPAL_TIMING_REPORT_OUT(&t,"RML_COLL");
+
+
     nm = (orte_namelist_t*)opal_list_get_first(&gather->participants);
     if (NULL == nm || ORTE_VPID_WILDCARD == nm->name.vpid) {
         /* start the allgather op by sending the data to our daemon - the
@@ -349,10 +362,6 @@ static void process_allgather(int fd, short args, void *cbdata)
                              ORTE_NAME_PRINT(ORTE_PROC_MY_NAME),
                              (int)gather->id));
         /* send to our daemon */
-        opal_timing_t t;
-        OPAL_TIMING_INIT(&t);
-        OPAL_TIMING_EVENT((&t,"Start allgather"));
-        OPAL_TIMING_REPORT_OUT(&t,"RML_COLL");
 
         if (0 > (rc = orte_rml.send_buffer_nb(ORTE_PROC_MY_DAEMON, buf,
                                               ORTE_RML_TAG_COLLECTIVE,
@@ -414,6 +423,7 @@ static int bad_modex(orte_grpcomm_collective_t *modex)
      * to avoid race conditions with modex data arriving
      * from other sources via the RML
      */
+
     ORTE_GRPCOMM_ACTIVATE(modex, orte_grpcomm_base_modex);
     return ORTE_SUCCESS;
 }

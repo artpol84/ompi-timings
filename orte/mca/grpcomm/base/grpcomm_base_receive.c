@@ -136,25 +136,25 @@ void orte_grpcomm_base_comm_stop(void)
     if (recv_issued) {
         orte_rml.recv_cancel(ORTE_NAME_WILDCARD, ORTE_RML_TAG_COLLECTIVE);
         OPAL_TIMING_REPORT_OUT(&timings[ORTE_RML_TAG_COLLECTIVE],"RML_COLL");
-        OPAL_TIMING_RELEASE(&timings[ORTE_RML_TAG_COLLECTIVE]);
+        //OPAL_TIMING_RELEASE(&timings[ORTE_RML_TAG_COLLECTIVE]);
 
         if (ORTE_PROC_IS_HNP || ORTE_PROC_IS_DAEMON) {
             orte_rml.recv_cancel(ORTE_NAME_WILDCARD, ORTE_RML_TAG_XCAST);
             OPAL_TIMING_REPORT_OUT(&timings[ORTE_RML_TAG_XCAST],"RML_XCAST");
-            OPAL_TIMING_RELEASE(&timings[ORTE_RML_TAG_XCAST]);
+            //OPAL_TIMING_RELEASE(&timings[ORTE_RML_TAG_XCAST]);
 
             orte_rml.recv_cancel(ORTE_NAME_WILDCARD, ORTE_RML_TAG_DAEMON_COLL);
             OPAL_TIMING_REPORT_OUT(&timings[ORTE_RML_TAG_DAEMON_COLL],"RML_COLL");
-            OPAL_TIMING_RELEASE(&timings[ORTE_RML_TAG_DAEMON_COLL]);
+            //OPAL_TIMING_RELEASE(&timings[ORTE_RML_TAG_DAEMON_COLL]);
         }
         if (ORTE_PROC_IS_HNP) {
             orte_rml.recv_cancel(ORTE_NAME_WILDCARD, ORTE_RML_TAG_COLL_ID_REQ);
             OPAL_TIMING_REPORT_OUT(&timings[ORTE_RML_TAG_COLL_ID_REQ],"RML_ID_REQ");
-            OPAL_TIMING_RELEASE(&timings[ORTE_RML_TAG_COLL_ID_REQ]);
+            //OPAL_TIMING_RELEASE(&timings[ORTE_RML_TAG_COLL_ID_REQ]);
 
             orte_rml.recv_cancel(ORTE_NAME_WILDCARD, ORTE_RML_TAG_DIRECT_MODEX);
-            OPAL_TIMING_REPORT_OUT(&timings[ORTE_RML_TAG_DIRECT_MODEX],"RML_MODEX");
-            OPAL_TIMING_RELEASE(&timings[ORTE_RML_TAG_DIRECT_MODEX]);
+            //OPAL_TIMING_REPORT_OUT(&timings[ORTE_RML_TAG_DIRECT_MODEX],"RML_MODEX");
+            //OPAL_TIMING_RELEASE(&timings[ORTE_RML_TAG_DIRECT_MODEX]);
         }
         recv_issued = false;
     }
@@ -244,7 +244,8 @@ static void app_recv(int status, orte_process_name_t* sender,
                                  coll->id));
             
             if (id == coll->id) {
-                OPAL_TIMING_EVENT((&timings[coll->id],"Collective is complete"));
+                OPAL_TIMING_EVENT((&timings[ORTE_RML_TAG_COLLECTIVE],"Collective is complete"));
+
                 /* see if the collective needs another step */
                 if (NULL != coll->next_cb) {
                     /* have to go here next */
@@ -483,7 +484,7 @@ static void daemon_local_recv(int status, orte_process_name_t* sender,
         return;
     }
 
-    OPAL_TIMING_EVENT((&timings[id],"Recv from %s", ORTE_NAME_PRINT(sender)));
+    OPAL_TIMING_EVENT((&timings[ORTE_RML_TAG_COLLECTIVE],"Recv from %s", ORTE_NAME_PRINT(sender)));
 
     OPAL_OUTPUT_VERBOSE((5, orte_grpcomm_base_framework.framework_output,
                          "%s WORKING COLLECTIVE %d",
@@ -636,7 +637,7 @@ static void daemon_coll_recv(int status, orte_process_name_t* sender,
         return;
     }
 
-    OPAL_TIMING_EVENT((&timings[id],"Recv from %s", ORTE_NAME_PRINT(sender)));
+    OPAL_TIMING_EVENT((&timings[ORTE_RML_TAG_DAEMON_COLL],"Recv from %s", ORTE_NAME_PRINT(sender)));
 
     OPAL_OUTPUT_VERBOSE((5, orte_grpcomm_base_framework.framework_output,
                          "%s grpcomm:base:daemon_coll: WORKING COLLECTIVE %d",
@@ -733,7 +734,7 @@ static void daemon_coll_recv(int status, orte_process_name_t* sender,
             orte_grpcomm_base_pack_collective(relay, jobid,
                                               coll, ORTE_GRPCOMM_INTERNAL_STG_GLOBAL);
             if (ORTE_VPID_WILDCARD == nm->name.vpid) {
-                OPAL_TIMING_EVENT((&timings[id],"XCAST"));
+                OPAL_TIMING_EVENT((&timings[ORTE_RML_TAG_DAEMON_COLL],"XCAST"));
                 /* this is going to everyone in this job, so use xcast */
                 orte_grpcomm.xcast(nm->name.jobid, relay, ORTE_RML_TAG_DAEMON_COLL);
                 OBJ_RELEASE(relay);

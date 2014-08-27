@@ -31,6 +31,14 @@
 
 #if OPAL_ENABLE_DEBUG
 
+
+static void debug_hang(int i)
+{
+  while( i ){
+    sleep(1);
+  }
+}
+
 double opal_timing_get_ts(void);
 opal_timing_event_t *opal_timing_event_alloc(opal_timing_t *t);
 int opal_timing_get_id(opal_timing_t *t);
@@ -148,10 +156,13 @@ void opal_timing_init(opal_timing_t *t)
     if( t->buffer == NULL ){
         // TODO: alloc err handler
     }
+    OPAL_TIMING_EVENT((t,"Init"));
 }
 
 opal_timing_prep_t opal_timing_prep_ev(opal_timing_t *t, const char *fmt, ...)
 {
+    debug_hang(0);
+    
     opal_timing_event_t *ev = opal_timing_event_alloc(t);
     OBJ_CONSTRUCT(ev, opal_timing_event_t);
     ev->ts = opal_timing_get_ts();
@@ -220,6 +231,8 @@ int opal_timing_report(opal_timing_t *t, const char *prefix, char *fname)
     char *jid = opal_timing_get_jobid();
     double bias = opal_timing_get_bias();
 
+    debug_hang(0);
+
     if( fname != NULL ){
         fp = fopen(fname,"a");
         if( fp == NULL ){
@@ -245,15 +258,21 @@ int opal_timing_report(opal_timing_t *t, const char *prefix, char *fname)
         }
         if( count > 1){
             char *line;
+            char *file_name = ev->file;
+            char *ptr = file_name;
+            for( ; *ptr != '\0' ; ptr++ ){
+                if( *ptr == '/'){
+                    file_name = ptr+1;
+                }
+            }
             if( prefix != NULL ){
-                rc = asprintf(&line,"%s:\t%s\t%s\t%s\t%s:%d\t%lfs\t%lfs\n",
-                              prefix,
-                              nname, jid, ev->func, ev->file, ev->line,
-                              ev->ts + bias, ev->ts + bias + overhead);
+                rc = asprintf(&line,"%s:\t%lfs\t%lfs\t\"%s\"\t|\t%s\t%s\t%s\t%s:%d\n",
+                              prefix,ev->ts + bias, ev->ts + bias + overhead,
+                              ev->descr, nname, jid, ev->func, file_name, ev->line);
             } else {
-                rc = asprintf(&line,"%s\t%s\t%s\t%s:%d\t%lfs\t%lfs\n",
-                              nname, jid, ev->func, ev->file, ev->line,
-                              ev->ts + bias, ev->ts + bias + overhead);
+                rc = asprintf(&line,"%lfs\t%lfs\t\"%s\"\t|\t%s\t%s\t%s\t%s:%d\n",
+                              ev->ts + bias, ev->ts + bias + overhead,
+                              ev->descr, nname, jid, ev->func, file_name, ev->line);
             }
             if( rc < 0 ){
                 // TODO: log mem allocation problems
@@ -272,7 +291,7 @@ int opal_timing_report(opal_timing_t *t, const char *prefix, char *fname)
                     fprintf(fp,"%s", buf);
                     fprintf(fp,"\n");
                 } else {
-                    opal_output(0,"%s", buf);
+                    opal_output(0,"\n%s", buf);
                 }
                 buf[0] = '\0';
                 buf_size = 0;
@@ -293,7 +312,7 @@ int opal_timing_report(opal_timing_t *t, const char *prefix, char *fname)
             fprintf(fp,"%s", buf);
             fprintf(fp,"\n");
         } else {
-            opal_output(0,"%s", buf);
+            opal_output(0,"\n%s", buf);
         }
         buf[0] = '\0';
         buf_size = 0;

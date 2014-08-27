@@ -1012,7 +1012,7 @@ static void sock_callback(int status, orte_process_name_t* sender,
     } else {
         cs->state = finalized;
         cs->fn(cs->relay);
-        orte_util_clock_sync_all_release(cs);
+        //orte_util_clock_sync_all_release(cs);
     }
 
     CLKSYNC_OUTPUT( ("callback is called, final state = %s\n", state_to_str(cs->state)) );
@@ -1373,7 +1373,7 @@ static void sock_respond(int fd, short flags, void* cbdata)
         if( PROC_NAME_CMP(next, orte_name_invalid) ){
             cs->state = finalized;
             cs->fn(cs->relay);
-            orte_util_clock_sync_all_release(cs);
+            //orte_util_clock_sync_all_release(cs);
         }else{
             responder_activate(cs);
         }
